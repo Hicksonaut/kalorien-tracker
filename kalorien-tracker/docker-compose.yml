@@ -1,0 +1,35 @@
+services:
+  kalorien-tracker:
+    build: .
+    container_name: kalorien-tracker
+    restart: unless-stopped
+    # Kein eigener Port: erreichbar nur ueber den HTTPS-Proxy (../https-proxy, Port 4320),
+    # im Heimnetz bzw. per WireGuard-VPN der Fritzbox. Kein Port-Forwarding am Router.
+    env_file: .env                      # INTERNAL_TOKEN (gleicher Wert wie im Dashboard)
+    environment:
+      # Garmin-Dashboard (optional). Ohne Dashboard in .env: DASHBOARD_URL=  (leer)
+      DASHBOARD_URL: ${DASHBOARD_URL-http://garmin-dashboard:8000}
+      FORWARDED_ALLOW_IPS: 172.30.0.10  # nur der Caddy-Proxy darf X-Forwarded-* setzen
+    volumes:
+      - ./data:/data
+    networks:
+      - homelab-apps
+    mem_limit: 256m
+
+  # BLS-Import auf Abruf im selben Image (idempotent, ~25 s). off.db wird auf dem Mac gebaut
+  # (scripts/build_off.py) und nur hochkopiert - siehe README.
+  #   docker compose --profile import run --rm import
+  import:
+    build: .
+    image: kalorien-tracker-import
+    profiles: ["import"]
+    env_file: .env
+    volumes:
+      - ./data:/data
+    healthcheck:
+      disable: true
+    command: ["python", "-m", "app.import_bls"]
+
+networks:
+  homelab-apps:
+    external: true   # einmalig: docker network create --subnet 172.30.0.0/24 homelab-apps

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Anmelden · Training</title>
+  <meta name="theme-color" content="#eef0f5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#07080c" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Training">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="login-page">
+  <div class="backdrop" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <form class="login glass" id="login" autocomplete="on">
+    <img src="icons/icon-192.png" alt="" width="72" height="72">
+    <h1>Training</h1>
+    <p class="muted small">Bitte mit deinem Dashboard-Passwort anmelden.</p>
+    <input type="text" name="username" value="dashboard" autocomplete="username" hidden>
+    <input class="field" type="password" id="pw" name="password" placeholder="Passwort" autocomplete="current-password" required autofocus>
+    <button class="primary" type="submit" id="go">Anmelden</button>
+    <p class="err small" id="err" role="alert"></p>
+  </form>
+  <script src="login.js"></script>
+</body>
+</html>

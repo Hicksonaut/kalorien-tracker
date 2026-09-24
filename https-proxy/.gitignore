@@ -1,0 +1,4 @@
+# Zertifikat und Schluessel werden lokal mit mkcert erzeugt (siehe docs/SETUP.md)
+certs/*
+!certs/.gitkeep
+*.pem

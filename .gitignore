@@ -1,0 +1,12 @@
+# Laufzeitdaten und Geheimnisse nie einchecken
+.env
+data/
+**/data/
+*.db
+*.db-*
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+https-proxy/certs/*
+!https-proxy/certs/.gitkeep

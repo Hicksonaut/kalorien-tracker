@@ -1,0 +1,29 @@
+services:
+  garmin-dashboard:
+    build: .
+    container_name: garmin-dashboard
+    restart: unless-stopped
+    # Im Heimnetz erreichbar (von unterwegs per WireGuard-VPN der Fritzbox).
+    # Zugriff nur mit Passwort-Login, kein Port-Forwarding am Router.
+    # HTTP direkt auf 4310, HTTPS ueber den Caddy-Proxy (../https-proxy) auf 4311.
+    ports:
+      - "4310:8000"
+    env_file:
+      - path: .env                     # INTERNAL_TOKEN (gleicher Wert wie im Kalorien-Tracker)
+        required: false
+    environment:
+      SYNC_HISTORY_DAYS: ${SYNC_HISTORY_DAYS:-365}
+      SYNC_DAILY_HISTORY_DAYS: ${SYNC_DAILY_HISTORY_DAYS:-90}
+      TRACKER_URL: http://kalorien-tracker:8000
+      TRACKER_PUBLIC_URL: ${TRACKER_PUBLIC_URL:-https://raspberrypi.local:4320}
+      FORWARDED_ALLOW_IPS: 172.30.0.10  # nur der Caddy-Proxy darf X-Forwarded-* setzen
+    volumes:
+      - ./data:/data
+    networks:
+      - default
+      - homelab-apps
+    mem_limit: 384m
+
+networks:
+  homelab-apps:
+    external: true   # einmalig: docker network create --subnet 172.30.0.0/24 homelab-apps

@@ -1,0 +1,29 @@
+# HTTPS fuer die Apps auf dem Raspberry Pi (Heimnetz + WireGuard-VPN, kein Port-Forwarding).
+# Zertifikat aus der lokalen mkcert-CA (siehe README). Kein automatisches HTTPS/ACME.
+{
+	auto_https off
+	admin off
+}
+
+(common) {
+	tls /certs/server.pem /certs/server-key.pem
+	# Server-zu-Server-Schnittstellen sind nie ueber den Proxy erreichbar
+	@internal path /internal/*
+	respond @internal 404
+	encode zstd gzip
+	header -Server
+	# Bewusst KEIN HSTS: es gilt fuer den ganzen Host und wuerde die HTTP-Dienste
+	# auf anderen Ports (Mealie, altes Dashboard auf 4310 ...) blockieren.
+}
+
+# Kalorien-Tracker
+https://:4320 {
+	import common
+	reverse_proxy kalorien-tracker:8000
+}
+
+# Training-Dashboard (HTTP bleibt parallel auf 4310)
+https://:4311 {
+	import common
+	reverse_proxy garmin-dashboard:8000
+}

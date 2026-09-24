@@ -1,0 +1,19 @@
+services:
+  https-proxy:
+    image: caddy:2-alpine
+    container_name: https-proxy
+    restart: unless-stopped
+    ports:
+      - "4320:4320"   # Kalorien-Tracker
+      - "4311:4311"   # Training-Dashboard
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+    networks:
+      homelab-apps:
+        ipv4_address: 172.30.0.10   # die Apps vertrauen X-Forwarded-* nur von hier
+    mem_limit: 64m
+
+networks:
+  homelab-apps:
+    external: true   # einmalig: docker network create --subnet 172.30.0.0/24 homelab-apps
