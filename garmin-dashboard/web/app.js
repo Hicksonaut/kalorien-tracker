@@ -141,7 +141,7 @@ function niceTicks(min, max, count = 4) {
   const span = max - min;
   const step0 = span / count;
   const mag = Math.pow(10, Math.floor(Math.log10(step0)));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= step0) || step0;
+  const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= step0) || step0;
   const lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step;
   const ticks = [];
   for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Math.round(v * 1e6) / 1e6);
@@ -239,11 +239,17 @@ function drawChart(el, spec) {
   let svg = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${esc(spec.aria || "Diagramm")}">`;
 
   if (!mini) {
-    for (const t of ticks) {
-      if (t < lo - 1e-9 || t > hi + 1e-9) continue;
-      svg += `<line class="gridline" x1="${pad.l}" x2="${W - pad.r}" y1="${Y(t)}" y2="${Y(t)}"/>`;
-      svg += `<text class="axis" x="${pad.l - 6}" y="${Y(t) + 3.5}" text-anchor="end">${esc(yFmt(t))}</text>`;
+    const shown = ticks.filter((t) => t >= lo - 1e-9 && t <= hi + 1e-9);
+    let labels = shown.map(yFmt);
+    // Formatierer rundet zu grob (z. B. 0,5er-Schritte als ganze Zahlen)? Dann mit passenden Nachkommastellen.
+    if (new Set(labels).size < labels.length && shown.length > 1) {
+      const dec = Math.min(2, Math.max(1, Math.ceil(-Math.log10(shown[1] - shown[0]) + 1e-9)));
+      labels = shown.map((t) => t.toLocaleString("de-DE", { minimumFractionDigits: dec, maximumFractionDigits: dec }));
     }
+    shown.forEach((t, k) => {
+      svg += `<line class="gridline" x1="${pad.l}" x2="${W - pad.r}" y1="${Y(t)}" y2="${Y(t)}"/>`;
+      svg += `<text class="axis" x="${pad.l - 6}" y="${Y(t) + 3.5}" text-anchor="end">${esc(labels[k])}</text>`;
+    });
     const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(iw / 62))));
     if (xv && spec.xTick) {
       const count = Math.max(2, Math.floor(iw / 70));
@@ -833,7 +839,7 @@ async function viewHealth() {
 
   const base = { n: rows.length, height: 180, xLabel: xl, tipTitle: tt };
   const h = (v) => (v == null ? null : v / 3600);
-  chart($("#h-sleep"), { ...base, aria: "Schlaf", yFmt: (v) => n0(v), bars: [
+  chart($("#h-sleep"), { ...base, aria: "Schlaf", yFmt: (v) => n0(v), tickStep: 2, bars: [
     { label: "Tief", color: css("--deep"), values: rows.map((r) => h(r.deep)), fmt: (v) => hm(v * 3600) },
     { label: "Leicht", color: css("--light"), values: rows.map((r) => h(r.light)), fmt: (v) => hm(v * 3600) },
     { label: "REM", color: css("--rem"), values: rows.map((r) => h(r.rem)), fmt: (v) => hm(v * 3600) },
@@ -870,7 +876,9 @@ async function viewHealth() {
     chart($("#h-weight"), { n: weights.length, height: 180, aria: "Gewicht", lines: [{ label: "Gewicht", color: css("--accent"), values: weights.map((w) => w[1]), dots: true, fmt: (v) => `${n1(v)} kg` }],
       xLabel: (i) => fmtShort(weights[i][0]), tipTitle: (i) => fmtDay(weights[i][0]), yFmt: n1 });
   } else {
-    $("#h-weight").innerHTML = `<div class="empty-state">Keine Waagen-Messungen in Garmin.<br>Profilgewicht: ${n1(d.profileWeight)} kg</div>`;
+    $("#h-weight").innerHTML = (d.weights || []).length
+      ? `<div class="empty-state">Zu wenige Messungen in diesem Zeitraum.<br>Zuletzt: ${n1(d.weights[d.weights.length - 1][1])} kg</div>`
+      : `<div class="empty-state">Keine Waagen-Messungen in Garmin.<br>Profilgewicht: ${n1(d.profileWeight)} kg</div>`;
   }
 }
 

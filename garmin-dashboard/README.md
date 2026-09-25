@@ -6,6 +6,28 @@ Web-App auf dem Raspberry Pi im Heimnetz, von unterwegs ueber den WireGuard-VPN 
 **URL:** http://raspberrypi.local:4310 (alternativ http://192.168.1.50:4310)
 **HTTPS:** https://raspberrypi.local:4311 ueber den Caddy-Proxy (`../https-proxy`, lokale CA)
 
+<p align="center">
+  <img src="../docs/screenshots/dashboard-heute-dunkel.png" width="24%" alt="Heute">
+  <img src="../docs/screenshots/dashboard-woche.png" width="24%" alt="Woche">
+  <img src="../docs/screenshots/dashboard-training.png" width="24%" alt="Training">
+  <img src="../docs/screenshots/dashboard-aktivitaet.png" width="24%" alt="Einheit im Detail">
+</p>
+
+(Screenshots mit erfundenen Demodaten.)
+
+## Ausprobieren mit Demodaten
+
+Ohne Garmin-Konto, mit 120 Tagen erfundener Trainings- und Gesundheitsdaten:
+
+```bash
+python3.12 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+mkdir -p data/demo
+DATA_DIR=./data/demo ./.venv/bin/python scripts/demo_data.py
+DATA_DIR=./data/demo SYNC_ENABLED=0 AUTH_ENABLED=0 ./.venv/bin/python -m uvicorn app.main:app --port 4310
+```
+
+Die README-Screenshots entstehen mit `scripts/screenshots.py` (Playwright + Google Chrome) aus genau diesen Daten.
+
 ## Aufbau
 
 ```
