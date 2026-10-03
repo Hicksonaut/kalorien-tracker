@@ -44,8 +44,37 @@ Mac (Heimnetz) / iPhone (WireGuard-VPN der Fritzbox) ──► raspberrypi:4310 
 | `app/main.py` | API, Login-Pruefung, Security-Header |
 | `app/auth.py` | Passwort (scrypt-Hash), signierte Session-Cookies, Sperre bei Fehlversuchen |
 | `app/login.py` | Einmaliger Garmin-Login (interaktiv) |
+| `app/analysis.py` | Regelbasierte Laufanalyse (Pacing, Pulsdrift, Zielpace, Laufdynamik gegen eigene Baseline), Karte "Analyse" im Detail; `progress()` fuer die Fortschrittskarten (Schwellenlaeufe, Zone-3-Laeufe) unter Training > Laufen |
 | `app/nutrition.py` | Verbindung zum Kalorien-Tracker (`/internal`, Energiebilanz) |
 | `web/` | Frontend ohne Build-Schritt: `app.js`, `styles.css`, Service Worker, Icons |
+| `web/share.js` | Export-Studio: Einheit als PNG (auch transparent) oder 6-s-Clip, gerendert auf Canvas |
+
+## Export
+
+Im Detail einer Einheit sitzt neben dem X ein Teilen-Button. Er oeffnet das Export-Studio:
+Format (Story 9:16, Post 4:5, 1:1), Layout (Klassisch, Sticker, Poster), Hintergrund
+(ohne/transparent, Liquid, Aurora, Nacht, Topo, Sportfarbe), Hell/Dunkel, Motiv (Strecke,
+Hoehe, Puls, Pace), Linienfarbe inkl. Tempo- oder Puls-Verlauf, bis zu 6 Kennzahlen in
+frei waehlbarer Reihenfolge und Details (Glaskarte, Glow, Koernung, Start/Ziel, Signatur).
+Die Einstellungen merkt sich der Browser, Kennzahlen je Sportart. Teilen und Kopieren
+brauchen HTTPS (Port 4311), auf 4310 gibt es nur den Download.
+
+## Laufanalyse und Fortschritt
+
+Im Detail jedes Laufs wertet `app/analysis.py` die Einheit regelbasiert aus (Pacing, Pulsdrift,
+Intensität bei Zonen-Läufen, Zielpace, Laufdynamik gegen die eigene Baseline, Kadenz, Hitze).
+Auf Training → Laufen vergleichen die Karten *Schwellenläufe* und *Zone-3-Läufe* ähnliche Einheiten
+über die Zeit (Effizienz in m/Herzschlag, Pulsdrift). Details, Regeln und Screenshots stehen im
+[Haupt-README](../README.md#laufanalyse).
+
+<p align="center">
+  <img src="../docs/screenshots/dashboard-analyse.png" width="24%" alt="Analyse">
+  <img src="../docs/screenshots/dashboard-fortschritt.png" width="24%" alt="Fortschritt">
+  <img src="../docs/screenshots/dashboard-export.png" width="24%" alt="Export-Studio">
+</p>
+
+Die Pace-Vorgaben für Schwellen- und Intervalleinheiten stehen als Konstanten in `app/analysis.py`
+(`TARGET_SCHWELLE`, `TARGET_INTERVALL`) und müssen bei geänderten Plan-Paces dort angepasst werden.
 
 ## Sync-Logik
 

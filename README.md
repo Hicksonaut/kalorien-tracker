@@ -48,6 +48,51 @@ Beide laufen komplett im Heimnetz, ohne Cloud und ohne Konto bei einem Anbieter.
 - **Rad:** FTP und W/kg, Leistungszonen, Stunden pro Woche, Normalized Power je Fahrt
 - **Kraft:** Einheiten, Sätze und Volumen (Gewicht × Wiederholungen)
 - **Detailansicht jeder Einheit:** Strecke, Herzfrequenz, Pace bzw. Leistung, Höhe, Zeit in Zonen, Runden, Kraft-Sätze
+- **Laufanalyse:** Bei jedem Lauf prüft das Dashboard regelbasiert, was auffällt (siehe [Laufanalyse](#laufanalyse))
+- **Fortschritt:** Schwellenläufe und Zone-3-Läufe im Zeitverlauf, mit Effizienz und Pulsdrift (siehe [Fortschritt](#fortschritt-über-vergleichbare-läufe))
+- **Export-Studio:** Eine Einheit als Bild oder 6-Sekunden-Clip für Story, Feed oder Strava (siehe [Export](#export))
+
+### Laufanalyse
+
+Im Detail jedes Laufs steht unter den Kennzahlen eine Karte **Analyse**. Sie wertet die gespeicherten Daten (Zusammenfassung, Runden, Zeitreihen) regelbasiert aus. Es läuft kein externer Dienst und es werden keine Daten verschickt. Auffälligkeiten stehen oben, Unauffälliges ist zugeklappt.
+
+<p align="center">
+  <img src="docs/screenshots/dashboard-analyse.png" width="32%" alt="Analyse-Karte im Detail eines Laufs">
+</p>
+
+| Prüfung | Was sie erkennt |
+|---|---|
+| Pacing | Einbruch in der zweiten Hälfte, zu schneller erster Kilometer, auffällig negativer Split |
+| Pulsdrift | Wie stark der Puls pro Tempo über den Lauf steigt (Ermüdung, Hitze, zu hohes Tempo) |
+| Intensität | Bei Läufen mit Zonen-Vorgabe („Zone 3 60 min“): zu hart oder zu locker |
+| Zielpace | Schwellen- und Intervalleinheiten gegen die Pace-Vorgaben des Plans, Gleichmäßigkeit der Wiederholungen |
+| Laufdynamik | Vertikalverhältnis, vertikale Oszillation, Bodenkontaktzeit, Kadenz, verglichen mit **deinem eigenen** Median bei ähnlichem Tempo |
+| Kadenz | Abfall im Verlauf des Laufs |
+| Bedingungen | Ab 25 °C der Hinweis, dass Puls und Pulsdrift davon beeinflusst sind |
+
+Die Schwellen sind Richtwerte. Wo es geht, wird gegen die eigene Baseline der letzten 150 Tage verglichen, nicht gegen Normwerte. Pulsgesteuerte Läufe werden milder bewertet, weil dort ein sinkendes Tempo bei konstantem Puls zu erwarten ist. Laufdynamik-Werte gibt es nur, wenn die Uhr sie aufzeichnet. Die Analyse sagt, *dass* etwas auffällt, nicht sicher *warum*, und ersetzt keine Technikanalyse.
+
+### Fortschritt über vergleichbare Läufe
+
+Auf **Training → Laufen** vergleichen zwei Karten ähnliche Einheiten über die Zeit:
+
+<p align="center">
+  <img src="docs/screenshots/dashboard-fortschritt.png" width="32%" alt="Karten Schwellenläufe und Zone-3-Läufe">
+</p>
+
+- **Schwellenläufe:** nur der Arbeitsteil ohne Ein- und Auslaufen. Pro Einheit Pace, Ø Puls, Effizienz und Temperatur.
+- **Zone-3-Läufe:** Läufe mit mindestens 60 % der Zeit in Zone 3. Zusätzlich zur Effizienz die **Pulsdrift** als eigenes Diagramm.
+- **Effizienz** ist der Effizienzfaktor in Metern pro Herzschlag (Geschwindigkeit geteilt durch Puls, höher ist besser). Sinkt der Puls bei gleicher Pace, steigt der Wert. Die Kopfzeile nennt die Veränderung seit der ersten Einheit.
+- Hitze drückt die Effizienz. Deshalb steht die Temperatur in der Tabelle; ein Anstieg bei gleicher oder höherer Temperatur zählt besonders.
+- Ein Tipp auf einen Punkt oder eine Zeile öffnet den Lauf. Mit wenigen Einheiten zeigt das eine Richtung, noch keinen belastbaren Trend.
+
+### Export
+
+Im Detail einer Einheit öffnet der Teilen-Button das **Export-Studio**: Format (Story 9:16, Post 4:5, 1:1), Layout, Hintergrund (auch transparent), Motiv (Strecke, Höhe, Puls, Pace), Kennzahlen und Details. Ausgabe als PNG oder 6-Sekunden-Clip, gerendert auf einem Canvas im Browser.
+
+<p align="center">
+  <img src="docs/screenshots/dashboard-export.png" width="32%" alt="Export-Studio">
+</p>
 
 **Health** (7 Tage bis 1 Jahr): Schlaf, HRV mit Normalbereich, Trainingsbereitschaft, Ruhepuls, Trainingslast, Body Battery, Stress, Schritte, VO2max, Gewicht. Ist der Tracker angebunden, kommen Energiebilanz und Makros dazu.
 

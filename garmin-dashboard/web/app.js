@@ -1,6 +1,8 @@
 // Training Dashboard - Frontend ohne Build-Schritt.
 // Alle Daten kommen aus der eigenen API (SQLite-Cache auf dem Pi).
 
+import { openStudio, closeStudio, isStudioOpen } from "./share.js";
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const viewEl = $("#view");
 const tipEl = $("#tip");
@@ -97,6 +99,7 @@ const ICONS = {
   down: '<path d="M6 10l6 6 6-6"/>',
   calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   trend: '<path d="M3.5 17l5.5-5.5 4 4 7.5-8"/><path d="M15 7.5h5.5V13"/>',
+  share: '<path d="M12 3.5v11.5"/><path d="M8 7.5l4-4 4 4"/><path d="M8.5 10.5H7a2.5 2.5 0 0 0-2.5 2.5v5A2.5 2.5 0 0 0 7 20.5h10a2.5 2.5 0 0 0 2.5-2.5v-5a2.5 2.5 0 0 0-2.5-2.5h-1.5"/>',
   scale: '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M8.5 10a5 5 0 0 1 7 0l-2.5 2.5"/>',
 };
 const icon = (name, sw = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.other}</svg>`;
@@ -725,6 +728,7 @@ async function viewTraining(sport) {
     html += `<section class="card glass col-4"><div class="card-h"><div class="card-t">VO2max-Verlauf</div></div><div class="chart" id="c-vo2"></div></section>`;
     html += `<section class="card glass col-6"><div class="card-h"><div class="card-t">Pace je Lauf</div><span class="small muted">min/km, ab 3 km</span></div><div class="chart" id="c-pace"></div></section>`;
     html += `<section class="card glass col-6"><div class="card-h"><div class="card-t">Ø Herzfrequenz je Lauf</div><span class="small muted">bpm</span></div><div class="chart" id="c-hr"></div></section>`;
+    html += progressCards(d.progress);
   } else if (sport === "cycling") {
     const w = d.weight;
     html += `<div class="col-12 tiles">
@@ -767,6 +771,7 @@ async function viewTraining(sport) {
       yFmt: (x) => pace(-x), tickStep: 30, xLabel: (i) => fmtShort(p[i].date), tipTitle: (i) => fmtDay(p[i].date), onClick: (i) => openActivity(p[i].id) });
     chart($("#c-hr"), { n: p.length, height: 180, aria: "Herzfrequenz je Lauf", lines: [{ label: "Ø HF", color: css("--critical"), values: p.map((x) => x.hr), dots: true, fmt: (x) => `${n0(x)} bpm` }],
       xLabel: (i) => fmtShort(p[i].date), tipTitle: (i) => fmtDay(p[i].date), onClick: (i) => openActivity(p[i].id) });
+    progressCharts(d.progress, col);
   } else if (sport === "cycling") {
     chart($("#c-vol"), { ...volSpec, aria: "Stunden pro Woche", bars: [{ label: "Stunden", color: col, values: wk.map((w) => w.duration / 3600), fmt: (v) => `${hm(v * 3600)} h` }],
       yFmt: (v) => n1(v), extraTip: (i) => [{ label: "Distanz", value: `${km(wk[i].distance)} km` }, { label: "Fahrten", value: String(wk[i].count) }] });
@@ -783,6 +788,53 @@ async function viewTraining(sport) {
     chart($("#c-svol"), { n: ses.length, height: 190, aria: "Volumen je Einheit", bars: [{ label: "Volumen", color: col, values: ses.map((x) => x.volume), fmt: (v) => `${n0(v)} kg` }],
       xLabel: (i) => fmtShort(ses[i].date), tipTitle: (i) => fmtDay(ses[i].date),
       extraTip: (i) => [{ label: "Sätze", value: String(ses[i].sets) }, { label: "Wdh.", value: String(ses[i].reps) }], onClick: (i) => openActivity(ses[i].id) });
+  }
+}
+
+// Fortschritt ueber vergleichbare Einheiten (app/analysis.py progress): Schwellenlaeufe und Zone-3-Laeufe
+function efChange(rows) {
+  if (rows.length < 2) return "";
+  const a = rows[0].ef, b = rows[rows.length - 1].ef, c = ((b - a) / a) * 100;
+  return `Effizienz seit ${fmtShort(rows[0].date)}: ${c >= 0 ? "+" : "−"}${n1(Math.abs(c))} %`;
+}
+function progressTable(rows, cols) {
+  const head = cols.map((c) => `<th>${c.h}</th>`).join("");
+  const body = rows.slice(-6).reverse().map((r) => `<tr data-act="${r.id}" style="cursor:pointer"><td>${esc(fmtShort(r.date))}</td>${cols.map((c) => `<td>${c.f(r)}</td>`).join("")}</tr>`).join("");
+  return `<div class="table-wrap"><table class="t"><thead><tr><th>Datum</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+function progressCards(pr) {
+  if (!pr) return "";
+  const thr = pr.threshold || [], z3 = pr.zone3 || [];
+  const temp = { h: "Temp.", f: (r) => (r.temp != null ? `${n0(r.temp)} °C` : "–") };
+  const note = '<div class="small muted" style="margin-top:8px">Effizienz = Meter pro Herzschlag, höher ist besser. Hitze drückt den Wert; ein Anstieg bei gleicher oder höherer Temperatur zählt besonders.</div>';
+  let html = "";
+  html += `<section class="card glass col-6"><div class="card-h"><div class="card-t">Schwellenläufe</div><span class="small muted">${esc(efChange(thr))}</span></div>`;
+  html += thr.length >= 2 ? `<div class="chart" id="c-thr"></div>${progressTable(thr, [
+    { h: "Pace", f: (r) => `${pace(r.pace)}` }, { h: "Ø HF", f: (r) => n0(r.hr) }, { h: "Eff.", f: (r) => r.ef.toFixed(2) }, temp])}${note}`
+    : '<div class="empty-state">Noch zu wenige Schwellenläufe zum Vergleichen</div>';
+  html += `</section>`;
+  html += `<section class="card glass col-6"><div class="card-h"><div class="card-t">Zone-3-Läufe</div><span class="small muted">${esc(efChange(z3))}</span></div>`;
+  html += z3.length >= 2 ? `<div class="chart" id="c-z3"></div><div class="chart" id="c-z3d" style="margin-top:6px"></div>${progressTable(z3, [
+    { h: "Pace", f: (r) => `${pace(r.pace)}` }, { h: "Ø HF", f: (r) => n0(r.hr) }, { h: "Eff.", f: (r) => r.ef.toFixed(2) },
+    { h: "Drift", f: (r) => (r.drift != null ? `${r.drift >= 0 ? "+" : "−"}${n1(Math.abs(r.drift))} %` : "–") }, temp])}${note}`
+    : '<div class="empty-state">Noch zu wenige Zone-3-Läufe zum Vergleichen</div>';
+  html += `</section>`;
+  return html;
+}
+function progressCharts(pr, col) {
+  if (!pr) return;
+  const thr = pr.threshold || [], z3 = pr.zone3 || [];
+  const common = (rows) => ({ n: rows.length, xLabel: (i) => fmtShort(rows[i].date), tipTitle: (i) => fmtDay(rows[i].date), onClick: (i) => openActivity(rows[i].id) });
+  if (thr.length >= 2 && $("#c-thr")) chart($("#c-thr"), { ...common(thr), height: 170, aria: "Effizienz Schwellenläufe",
+    lines: [{ label: "Effizienz", color: col, values: thr.map((x) => x.ef), dots: true, fmt: (x) => `${x.toFixed(2)} m/Schlag` }],
+    yFmt: (x) => x.toFixed(2), extraTip: (i) => [{ label: "Pace", value: `${pace(thr[i].pace)} /km` }, { label: "Ø HF", value: `${n0(thr[i].hr)} bpm` }] });
+  if (z3.length >= 2 && $("#c-z3")) {
+    chart($("#c-z3"), { ...common(z3), height: 150, aria: "Effizienz Zone-3-Läufe",
+      lines: [{ label: "Effizienz", color: col, values: z3.map((x) => x.ef), dots: true, fmt: (x) => `${x.toFixed(2)} m/Schlag` }],
+      yFmt: (x) => x.toFixed(2), extraTip: (i) => [{ label: "Pace", value: `${pace(z3[i].pace)} /km` }, { label: "Ø HF", value: `${n0(z3[i].hr)} bpm` }] });
+    chart($("#c-z3d"), { ...common(z3), height: 130, aria: "Pulsdrift Zone-3-Läufe",
+      lines: [{ label: "Pulsdrift", color: css("--critical"), values: z3.map((x) => x.drift), dots: true, fmt: (x) => `${n1(x)} %` }],
+      yFmt: (x) => `${n0(x)} %` });
   }
 }
 
@@ -916,8 +968,12 @@ async function openActivity(id) {
   let html = `<div class="grab"></div>
     <div class="sheet-h"><span class="ic bg-${esc(sp)}">${sportIcon(sp)}</span>
       <div style="min-width:0"><h2>${esc(a.name || SPORT[sp])}</h2><div class="small muted">${esc(fmtDay(a.start))} · ${esc(fmtTime(a.start))} Uhr${a.teLabel && TE_LABEL[a.teLabel] !== "" ? ` · ${esc(TE_LABEL[a.teLabel] || humanize(a.teLabel))}` : ""}</div></div>
-      <button class="icon-btn glass close" id="sheet-close" aria-label="Schließen">${icon("x", 2.2)}</button></div>
+      <div class="sheet-actions">
+        <button class="icon-btn glass" id="sheet-share" type="button" aria-label="Exportieren" title="Als Bild oder Clip exportieren">${icon("share", 2)}</button>
+        <button class="icon-btn glass close" id="sheet-close" type="button" aria-label="Schließen">${icon("x", 2.2)}</button>
+      </div></div>
     <div class="stats">${stats}</div>`;
+  if (data.analysis?.items?.length) html += analysisCard(data.analysis);
   if (det.route?.length > 1) html += `<div class="section"><h3>Strecke</h3><div class="route glass" style="border-radius:20px;padding:10px" id="d-route"></div></div>`;
   const S = det.series || {};
   if (S.hr) html += `<div class="section"><h3>Herzfrequenz</h3><div class="chart" id="d-hr"></div></div>`;
@@ -931,6 +987,7 @@ async function openActivity(id) {
   if (!det.laps && !det.series) html += `<div class="empty-state">Details werden noch geladen – kurz nach dem Sync verfügbar.</div>`;
   sheet.innerHTML = html;
   $("#sheet-close").onclick = closeSheet;
+  $("#sheet-share").onclick = () => openStudio(exportPayload(a, det));
 
   if (det.route?.length > 1) routeMap($("#d-route"), det.route, col);
   const t = S.t || S.d || [];
@@ -949,6 +1006,49 @@ async function openActivity(id) {
   }
   if (sp === "cycling" && S.p) chart($("#d-pow"), { n, height: 150, aria: "Leistung", yMin: 0, lines: [{ label: "Leistung", color: col, values: S.p, width: 1.4, fmt: (v) => `${n0(v)} W` }], xLabel: xT, tipTitle: tipT, ...xs });
   if (S.e && (a.elevation || 0) > 5) chart($("#d-ele"), { n, height: 110, aria: "Höhe", lines: [{ label: "Höhe", color: css("--ink-3"), values: S.e, area: true, width: 1.4, fmt: (v) => `${n0(v)} m` }], xLabel: xT, tipTitle: tipT, ...xs });
+}
+
+// Daten fuer das Export-Studio (share.js): fertig formatierte Kennzahlen + Rohdaten fuer Karte/Kurven
+function exportPayload(a, det) {
+  const sp = a.sport;
+  const S = (key, label, value, unit = "") => ({ key, label, value: String(value), unit });
+  let list;
+  if (sp === "running") {
+    list = [S("distance", "Distanz", km(a.distance), "km"), S("time", "Zeit", dur(a.duration, true)), S("pace", "Pace", paceFromSpeed(a.avgSpeed), "/km"),
+      S("hr", "Ø HF", n0(a.avgHr), "bpm"), S("maxhr", "Max HF", n0(a.maxHr), "bpm"), S("gap", "GAP", paceFromSpeed(a.gap), "/km"),
+      S("cadence", "Kadenz", n0(a.cadence), "spm"), S("power", "Ø Leistung", n0(a.avgPower), "W"), S("elevation", "Anstieg", n0(a.elevation), "m")];
+  } else if (sp === "cycling") {
+    list = [S("distance", "Distanz", km(a.distance), "km"), S("time", "Zeit", dur(a.duration, true)), S("speed", "Ø Tempo", kmh(a.avgSpeed), "km/h"),
+      S("power", "Ø Leistung", n0(a.avgPower), "W"), S("np", "NP", n0(a.normPower), "W"), S("hr", "Ø HF", n0(a.avgHr), "bpm"),
+      S("maxhr", "Max HF", n0(a.maxHr), "bpm"), S("cadence", "Kadenz", n0(a.cadence), "rpm"), S("elevation", "Anstieg", n0(a.elevation), "m")];
+  } else {
+    const sets = (det.sets || []).filter((s) => s.type === "ACTIVE");
+    const reps = sets.reduce((x, s) => x + (s.reps || 0), 0);
+    const vol = sets.reduce((x, s) => x + ((s.weight || 0) / 1000) * (s.reps || 0), 0);
+    list = [S("time", "Zeit", dur(a.duration, true)), S("sets", "Sätze", sets.length || a.sets || "–"), S("reps", "Wdh.", reps || "–"),
+      S("volume", "Volumen", vol ? n0(vol) : "–", "kg"), S("hr", "Ø HF", n0(a.avgHr), "bpm"), S("maxhr", "Max HF", n0(a.maxHr), "bpm")];
+  }
+  list.push(S("te", "Trainingseffekt", n1(a.te), "aerob"), S("load", "Last", n0(a.load)), S("calories", "Kalorien", n0(a.calories), "kcal"));
+  const defaults = { running: ["distance", "pace", "time", "hr"], cycling: ["distance", "time", "speed", "hr"] }[sp] || ["time", "sets", "volume", "hr"];
+  return {
+    id: a.id, sport: sp, day: (a.start || "").slice(0, 10),
+    title: a.name || SPORT[sp],
+    date: `${fmtDay(a.start)} ${pd(a.start).getFullYear()} · ${fmtTime(a.start)} Uhr`,
+    stats: list.filter((s) => s.value !== "–" && s.value !== "undefined"),
+    defaults, route: det.route || [], series: det.series || {},
+    iconSvg: ICONS[sp] || ICONS.other,
+  };
+}
+
+// Regelbasierte Laufanalyse (app/analysis.py): auffaellige Punkte als Liste, unauffaellige zugeklappt
+function analysisCard(an) {
+  const row = (i) => `<li class="an-${esc(i.level)}"><span class="an-dot"></span><div><div class="an-t">${esc(i.title)}<span class="an-area">${esc(i.area)}</span></div><div class="an-x">${esc(i.text)}</div></div></li>`;
+  const flagged = an.items.filter((i) => i.level !== "ok"), fine = an.items.filter((i) => i.level === "ok");
+  return `<div class="section"><h3>Analyse</h3><div class="analysis glass an-${esc(an.level)}">
+    <div class="an-head">${esc(an.summary)}</div>
+    ${flagged.length ? `<ul>${flagged.map(row).join("")}</ul>` : ""}
+    ${fine.length ? `<details><summary>${fine.length} unauffällig</summary><ul>${fine.map(row).join("")}</ul></details>` : ""}
+    <div class="an-foot">Regelbasiert aus deinen Daten, kein Ersatz für Technikanalyse.</div></div></div>`;
 }
 
 function zoneBars(zones, unit = "bpm") {
@@ -1009,7 +1109,10 @@ function closeSheet() {
   hideTip();
 }
 sheetBg.addEventListener("click", closeSheet);
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (isStudioOpen()) closeStudio(); else closeSheet();
+});
 // Nach unten wischen schliesst das Sheet (nur wenn ganz oben gescrollt)
 let dragY = null;
 sheet.addEventListener("touchstart", (e) => { dragY = sheet.scrollTop <= 0 ? e.touches[0].clientY : null; }, { passive: true });
@@ -1100,7 +1203,7 @@ async function route() {
     render(`<div class="banner glass">${icon("alert")}<span>Keine Verbindung zum Dashboard-Server. Im Heimnetz oder per VPN verbunden? <span class="muted">(${esc(err.message)})</span></span></div>`);
   }
 }
-window.addEventListener("hashchange", () => { closeSheet(); route(); window.scrollTo({ top: 0 }); });
+window.addEventListener("hashchange", () => { closeStudio(); closeSheet(); route(); window.scrollTo({ top: 0 }); });
 
 // Beim Zurueckkehren in die App aktualisieren
 let hiddenAt = 0;

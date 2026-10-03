@@ -52,6 +52,9 @@ async def guard(request: Request, call_next):
     )
     if path.startswith(("/api/", "/internal/")):
         response.headers["Cache-Control"] = "no-store"
+    elif "cache-control" not in response.headers:
+        # Statische Dateien immer per ETag pruefen, sonst bleiben alte app.js/styles.css haengen
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 

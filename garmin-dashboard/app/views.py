@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from . import db, nutrition
+from . import analysis, db, nutrition
 from .sync import sport_of
 
 PLANNED_SPORT = {
@@ -252,6 +252,7 @@ def sport_view(sport: str, weeks: int = 12) -> dict[str, Any]:
                             "power": (lt.get("power") or {}).get("functionalThresholdPower")}
         out["racePredictions"] = db.get_blob("race_predictions")
         out["paceTrend"] = _pace_trend(acts)
+        out["progress"] = analysis.progress()
         out["vo2Trend"] = [
             {"date": d, "value": v.get("vo2max")}
             for d, v in db.daily_range("tstatus", since, today.isoformat()).items()
@@ -370,7 +371,7 @@ def activity_view(act_id: int) -> dict[str, Any] | None:
         "bodyBattery": summary.get("differenceBodyBattery"),
         "vo2max": summary.get("vO2MaxValue"),
     })
-    return {"activity": card, "detail": detail}
+    return {"activity": card, "detail": detail, "analysis": analysis.analyze_run(act_id, summary, detail)}
 
 
 def status_view(sync_status: dict) -> dict[str, Any]:

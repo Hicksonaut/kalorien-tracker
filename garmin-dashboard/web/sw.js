@@ -1,7 +1,7 @@
 // Service Worker: App-Shell offline, API "network first" mit letztem Stand als Fallback.
-const SHELL = "shell-v2";
+const SHELL = "shell-v6";
 const API = "api-v2";
-const SHELL_FILES = ["/", "/styles.css", "/app.js", "/manifest.webmanifest",
+const SHELL_FILES = ["/", "/styles.css", "/app.js", "/share.js", "/manifest.webmanifest",
   "/icons/icon-192.png", "/icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {

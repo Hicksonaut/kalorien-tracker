@@ -16,6 +16,7 @@ from playwright.sync_api import sync_playwright
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:4310"
 OUT = Path(sys.argv[2] if len(sys.argv) > 2 else "screenshots")
 OUT.mkdir(parents=True, exist_ok=True)
+ONLY = set(sys.argv[3].split(",")) if len(sys.argv) > 3 else {x[0] for x in SHOTS}
 
 PHONE = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 2, "is_mobile": True, "has_touch": True}
 DESKTOP = {"viewport": {"width": 1440, "height": 900}, "device_scale_factor": 2}
@@ -28,6 +29,9 @@ SHOTS = [
     ("dashboard-training.png", PHONE, "dark", "#/training/running", "scroll-charts"),
     ("dashboard-health.png", PHONE, "light", "#/health", "scroll-health"),
     ("dashboard-aktivitaet.png", PHONE, "dark", "#/training/running", "open-interval"),
+    ("dashboard-analyse.png", PHONE, "dark", "#/training/running", "open-analysis"),
+    ("dashboard-fortschritt.png", PHONE, "dark", "#/training/running", "scroll-progress"),
+    ("dashboard-export.png", PHONE, "dark", "#/training/running", "open-export"),
     ("dashboard-desktop-heute.png", DESKTOP, "dark", "#/heute", None),
     ("dashboard-desktop-woche.png", DESKTOP, "light", "#/woche", None),
     ("dashboard-desktop-training.png", DESKTOP, "dark", "#/training/running", None),
@@ -38,7 +42,7 @@ SHOTS = [
 def main() -> None:
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome")
-        for name, device, scheme, route, action in SHOTS:
+        for name, device, scheme, route, action in [x for x in SHOTS if x[0] in ONLY]:
             ctx = browser.new_context(**device, color_scheme=scheme, locale="de-DE",
                                       timezone_id="Europe/Berlin", reduced_motion="reduce")
             page = ctx.new_page()
@@ -58,6 +62,21 @@ def main() -> None:
                 page.locator(".row[data-act]", has_text="Intervalle").first.click()
                 page.wait_for_selector("#d-hr svg", timeout=10000)
                 page.wait_for_timeout(900)
+            elif action == "open-analysis":
+                page.locator(".row[data-act]", has_text="Zone 3").first.click()
+                page.wait_for_selector(".analysis", timeout=10000)
+                page.wait_for_timeout(900)
+                page.evaluate("document.querySelector('#sheet').scrollTop = 0")
+            elif action == "scroll-progress":
+                page.wait_for_selector("#c-thr svg", timeout=10000)
+                page.evaluate("document.querySelector('#c-thr').closest('.card').scrollIntoView({block: 'start'}); window.scrollBy(0, -20)")
+            elif action == "open-export":
+                page.locator(".row[data-act]", has_text="Schwelle").first.click()
+                page.wait_for_selector("#sheet-share", timeout=10000)
+                page.wait_for_timeout(700)
+                page.locator("#sheet-share").click()
+                page.wait_for_selector("#studio.on, .studio.on", timeout=10000)
+                page.wait_for_timeout(1500)
             page.wait_for_timeout(400)
             page.screenshot(path=str(OUT / name))
             print("gespeichert:", OUT / name)
