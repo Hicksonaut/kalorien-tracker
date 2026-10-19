@@ -47,7 +47,7 @@ const ago = (ts) => {
 
 // --- Uebersetzungen ---------------------------------------------------------
 
-const SPORT = { running: "Laufen", cycling: "Rad", strength: "Kraft", other: "Sonstiges" };
+const SPORT = { running: "Laufen", cycling: "Rad", strength: "Kraft", other: "Sonstiges", all: "Gesamt" };
 const READY_LEVEL = { POOR: "Schlecht", LOW: "Niedrig", MODERATE: "Mäßig", HIGH: "Hoch", PRIME: "Top" };
 const READY_SHORT = {
   LISTEN_TO_YOUR_BODY: "Hör auf deinen Körper", READY_TO_TRAIN: "Bereit fürs Training",
@@ -467,6 +467,8 @@ async function viewToday() {
 
   let html = banner(d.sync);
   html += `<div class="grid">`;
+  html += warningCard(d.warnings);
+  html += seasonCard(d.season);
 
   // Readiness
   html += `<section class="card glass col-8">
@@ -605,6 +607,46 @@ async function viewToday() {
 
 // Energiebilanz aus dem Kalorien-Tracker (gegessen = --accent, Verbrauch = --ink-3)
 const MACROS = [["protein", "Eiweiß", "--protein", 4], ["carbs", "Kohlenhydrate", "--carbs", 4], ["fat", "Fett", "--fat", 9]];
+// Wettkaempfe und Form (app/season.py)
+const EVENT_KIND = { run: "Lauf", triathlon: "Triathlon", ride: "Rad", other: "Sonstiges" };
+const EVENT_ICON = { run: "running", triathlon: "trend", ride: "cycling", other: "calendar" };
+const fmtDate = (s) => { const d = pd(s); return `${WD[d.getDay()]}, ${d.getDate()}. ${MON[d.getMonth()]} ${d.getFullYear()}`; };
+function countdown(days) {
+  if (days === 0) return "Heute";
+  if (days === 1) return "Morgen";
+  const w = Math.floor(days / 7), r = days % 7;
+  return days < 14 ? `${days} Tage` : `${w} Wochen${r ? ` + ${r} ${r === 1 ? "Tag" : "Tage"}` : ""}`;
+}
+function eventBox(e) {
+  return `<div class="event">
+    <div class="ev-top"><span class="ic">${icon(EVENT_ICON[e.kind] || "calendar", 2)}</span><div style="min-width:0"><b>${esc(e.name)}</b><div class="small muted">${esc(fmtDate(e.date))}</div></div></div>
+    <div class="ev-days">${e.days > 1 ? n0(e.days) : esc(countdown(e.days))}${e.days > 1 ? '<span class="unit">Tage</span>' : ""}</div>
+    <div class="small ink2">${e.days >= 14 ? `${esc(countdown(e.days))} · ` : ""}${esc(e.detail || EVENT_KIND[e.kind])}</div>
+    ${e.prediction ? `<div class="small muted" style="margin-top:4px">Garmin-Prognose heute ${dur(e.prediction, true)}</div>` : ""}
+  </div>`;
+}
+const formPct = (f) => (f?.pct == null ? "–" : `${f.pct > 0 ? "+" : f.pct < 0 ? "−" : ""}${n0(Math.abs(f.pct))} %`);
+function seasonCard(se) {
+  if (!se || (!se.events?.length && !se.form)) return "";
+  const f = se.form;
+  return `<section class="card glass col-12"><div class="card-h"><div class="card-t">${icon("calendar")}Wettkämpfe</div><a class="card-link" href="#/training/all">Formkurve</a></div>
+    <div class="events">${se.events?.length ? se.events.map(eventBox).join("") : '<div class="event"><div class="small muted">Noch kein Wettkampf eingetragen. Unter Training → Gesamt hinzufügen.</div></div>'}
+    ${f ? `<div class="event"><div class="ev-top"><span class="ic">${icon("gauge", 2)}</span><div><b>Form heute</b><div class="small muted">${esc(f.zone?.label || "")}</div></div></div>
+      <div class="ev-days">${formPct(f)}</div>
+      <div class="small ink2">Fitness ${n0(f.ctl)} · Ermüdung ${n0(f.atl)}</div>
+      <div class="small muted" style="margin-top:4px">Fitness ${f.ramp28 == null ? "" : `${f.ramp28 >= 0 ? "+" : "−"}${n1(Math.abs(f.ramp28))} in 4 Wochen`}</div></div>` : ""}</div></section>`;
+}
+
+// Fruehwarnung (app/insights.py): Ruhepuls, HRV, Schlaf und Lastanstieg gegen die eigenen letzten Wochen
+function warningCard(w) {
+  if (!w) return "";
+  const row = (i) => `<li class="an-${esc(i.level)}"><span class="an-dot"></span><div><div class="an-t">${esc(i.title)}<span class="an-area">${esc(i.area)}</span></div><div class="an-x">${esc(i.text)}</div></div></li>`;
+  const badge = w.level === "warn" ? statusBadge("serious", "Auffällig") : w.level === "info" ? statusBadge("warn", "Hinweis") : statusBadge("good", "Unauffällig");
+  return `<section class="card glass col-12"><div class="card-h"><div class="card-t">${icon("alert")}Frühwarnung</div>${badge}</div>
+    <div class="analysis" style="padding:0">${w.items.length ? `<ul style="margin-top:0">${w.items.map(row).join("")}</ul>` : ""}
+    ${w.checked?.length ? `<details ${w.items.length ? "" : 'style="margin-top:0"'}><summary>${w.items.length ? "Geprüfte Werte" : "Ruhepuls, HRV, Schlaf und Belastung im üblichen Rahmen"}</summary><div class="small ink2" style="margin-top:8px;line-height:1.6">${w.checked.map(esc).join("<br>")}</div></details>` : '<div class="small muted">Noch zu wenige Tageswerte für einen Vergleich.</div>'}</div></section>`;
+}
+
 const signed = (v) => (v == null ? "–" : `${v > 0 ? "+" : v < 0 ? "−" : "±"}${n0(Math.abs(v))}`);
 function energyCard(n) {
   const eaten = n.available && n.entries ? n.kcal : null;
@@ -703,16 +745,14 @@ function isoWeek(d) {
 
 let trainingWeeks = 12;
 async function viewTraining(sport) {
+  if (sport === "all") return viewOverview();
   if (!["running", "cycling", "strength"].includes(sport)) sport = "running";
   setHeader("Training", SPORT[sport]);
   const d = await api(`/api/sport/${sport}?weeks=${trainingWeeks}`, { fresh: true });
   const col = sportColor(sport);
   const wk = d.weekly;
   const wkLabel = (i) => fmtShort(wk[i].week);
-  let html = `<div class="toolbar">
-    <div class="segment glass" role="tablist">${["running", "cycling", "strength"].map((s) => `<button class="${s === sport ? "on" : ""}" data-sport="${s}" role="tab" aria-selected="${s === sport}">${sportIcon(s)}${SPORT[s]}</button>`).join("")}</div>
-    <div class="segment glass">${[8, 12, 26, 52].map((w) => `<button class="${w === trainingWeeks ? "on" : ""}" data-weeks="${w}">${w < 52 ? `${w} W` : "1 J"}</button>`).join("")}</div>
-  </div><div class="grid">`;
+  let html = `${trainingToolbar(sport)}<div class="grid">`;
 
   if (sport === "running") {
     const rp = d.racePredictions || {};
@@ -729,6 +769,7 @@ async function viewTraining(sport) {
     html += `<section class="card glass col-6"><div class="card-h"><div class="card-t">Pace je Lauf</div><span class="small muted">min/km, ab 3 km</span></div><div class="chart" id="c-pace"></div></section>`;
     html += `<section class="card glass col-6"><div class="card-h"><div class="card-t">Ø Herzfrequenz je Lauf</div><span class="small muted">bpm</span></div><div class="chart" id="c-hr"></div></section>`;
     html += progressCards(d.progress);
+    html += bestsCard(d.bests, sport, null, d.racePredictions);
   } else if (sport === "cycling") {
     const w = d.weight;
     html += `<div class="col-12 tiles">
@@ -740,6 +781,8 @@ async function viewTraining(sport) {
     html += `<section class="card glass col-8"><div class="card-h"><div class="card-t">Stunden pro Woche</div></div><div class="chart" id="c-vol"></div></section>`;
     html += `<section class="card glass col-4"><div class="card-h"><div class="card-t">Leistungszonen</div><span class="small muted">FTP ${n0(d.ftp)} W</span></div>${powerZones(d.powerZones)}</section>`;
     html += `<section class="card glass col-12"><div class="card-h"><div class="card-t">Leistung je Fahrt</div><span class="small muted">Watt</span></div><div class="chart" id="c-pow"></div></section>`;
+    html += rideProgressCard(d.progress);
+    html += bestsCard(d.bests, sport, d.weight);
   } else {
     const ses = d.sessions || [];
     html += `<div class="col-12 tiles">
@@ -750,13 +793,13 @@ async function viewTraining(sport) {
     </div>`;
     html += `<section class="card glass col-6"><div class="card-h"><div class="card-t">Einheiten pro Woche</div></div><div class="chart" id="c-vol"></div></section>`;
     html += `<section class="card glass col-6"><div class="card-h"><div class="card-t">Volumen je Einheit</div><span class="small muted">kg</span></div><div class="chart" id="c-svol"></div></section>`;
+    html += exerciseCard(d.exercises);
   }
   html += `<section class="card glass col-12"><div class="card-h"><div class="card-t">Einheiten</div><span class="small muted">${d.activities.length}</span></div>
     <div class="list">${d.activities.length ? d.activities.map((a) => activityRow(a)).join("") : '<div class="empty-state">Keine Einheiten im Zeitraum</div>'}</div></section></div>`;
   render(html);
 
-  viewEl.querySelectorAll("[data-sport]").forEach((b) => (b.onclick = () => (location.hash = `#/training/${b.dataset.sport}`)));
-  viewEl.querySelectorAll("[data-weeks]").forEach((b) => (b.onclick = () => { trainingWeeks = Number(b.dataset.weeks); viewTraining(sport); }));
+  bindTrainingToolbar(sport);
 
   const volSpec = { n: wk.length, height: 190, xLabel: wkLabel, tipTitle: (i) => `Woche ab ${fmtDay(wk[i].week)}` };
   if (sport === "running") {
@@ -781,6 +824,7 @@ async function viewTraining(sport) {
         { label: "Ø Leistung", color: css("--ink-3"), values: p.map((x) => x.avg), dash: true, fmt: (x) => `${n0(x)} W` }],
       xLabel: (i) => fmtShort(p[i].date), tipTitle: (i) => fmtDay(p[i].date), onClick: (i) => openActivity(p[i].id) });
     if (p.length) $("#c-pow").insertAdjacentHTML("afterend", legend([{ label: "Normalized Power", color: col }, { label: "Ø Leistung (gestrichelt)", color: css("--ink-3") }]));
+    rideProgressChart(d.progress, col);
   } else {
     chart($("#c-vol"), { ...volSpec, aria: "Einheiten pro Woche", bars: [{ label: "Einheiten", color: col, values: wk.map((w) => w.count), fmt: (v) => String(v) }],
       extraTip: (i) => [{ label: "Zeit", value: dur(wk[i].duration) }] });
@@ -788,7 +832,348 @@ async function viewTraining(sport) {
     chart($("#c-svol"), { n: ses.length, height: 190, aria: "Volumen je Einheit", bars: [{ label: "Volumen", color: col, values: ses.map((x) => x.volume), fmt: (v) => `${n0(v)} kg` }],
       xLabel: (i) => fmtShort(ses[i].date), tipTitle: (i) => fmtDay(ses[i].date),
       extraTip: (i) => [{ label: "Sätze", value: String(ses[i].sets) }, { label: "Wdh.", value: String(ses[i].reps) }], onClick: (i) => openActivity(ses[i].id) });
+    exerciseBind(d.exercises, col);
   }
+}
+
+// Grundlagenfahrten im Vergleich (app/analysis.py ride_progress)
+const rideEf = (rows) => { const pw = rows.filter((r) => r.ef != null); return pw.length >= 2 ? { rows: pw, key: "ef", unit: "W/Schlag" } : { rows, key: "efSpeed", unit: "m/Schlag" }; };
+function rideProgressCard(all) {
+  const { rows, key, unit } = rideEf(all || []);
+  let html = `<section class="card glass col-12"><div class="card-h"><div class="card-t">Grundlagenfahrten</div><span class="small muted">${rows.length >= 2 ? esc(efChange(rows.map((r) => ({ ...r, ef: r[key] })))) : ""}</span></div>`;
+  if (rows.length < 2) return `${html}<div class="empty-state">Noch zu wenige Grundlagenfahrten ab 45 Minuten zum Vergleichen</div></section>`;
+  const power = key === "ef";
+  html += `<div class="chart" id="c-rp"></div>${progressTable(rows, [
+    { h: "Dauer", f: (r) => dur(r.minutes * 60) }, power ? { h: "Leistung", f: (r) => `${n0(r.power)} W` } : { h: "Tempo", f: (r) => `${n1(r.speed)} km/h` },
+    { h: "Ø HF", f: (r) => n0(r.hr) }, { h: "Eff.", f: (r) => r[key].toFixed(2) },
+    ...(power ? [{ h: "Entkoppl.", f: (r) => (r.decoupling != null ? `${r.decoupling >= 0 ? "+" : "−"}${n1(Math.abs(r.decoupling))} %` : "–") }] : [])])}
+    <div class="small muted" style="margin-top:8px">Fahrten ab 45 Minuten, überwiegend in Zone 1–2 oder als Zone-2-Fahrt benannt. Effizienz = ${power ? "Watt pro Herzschlag" : "Meter pro Herzschlag; ohne Leistungsmesser verfälschen Wind und Gelände den Wert"}, höher ist besser.${power ? " Entkopplung unter 5 % gilt als aerob stabil." : ""}</div></section>`;
+  return html;
+}
+function rideProgressChart(all, col) {
+  const { rows, key, unit } = rideEf(all || []);
+  if (rows.length < 2 || !$("#c-rp")) return;
+  chart($("#c-rp"), { n: rows.length, height: 170, aria: "Effizienz Grundlagenfahrten", xLabel: (i) => fmtShort(rows[i].date), tipTitle: (i) => fmtDay(rows[i].date), onClick: (i) => openActivity(rows[i].id),
+    lines: [{ label: "Effizienz", color: col, values: rows.map((r) => r[key]), dots: true, fmt: (x) => `${x.toFixed(2)} ${unit}` }], yFmt: (x) => x.toFixed(2),
+    extraTip: (i) => [{ label: "Ø HF", value: `${n0(rows[i].hr)} bpm` }, rows[i].power ? { label: "Leistung", value: `${n0(rows[i].power)} W` } : { label: "Tempo", value: `${n1(rows[i].speed)} km/h` }] });
+}
+
+function trainingToolbar(sport) {
+  return `<div class="toolbar">
+    <div class="segment glass" role="tablist">${["running", "cycling", "strength", "all"].map((s) => `<button class="${s === sport ? "on" : ""}" data-sport="${s}" role="tab" aria-selected="${s === sport}">${s === "all" ? icon("trend", 2) : sportIcon(s)}<span>${SPORT[s]}</span></button>`).join("")}</div>
+    <div class="segment glass">${[8, 12, 26, 52].map((w) => `<button class="${w === trainingWeeks ? "on" : ""}" data-weeks="${w}">${w < 52 ? `${w} W` : "1 J"}</button>`).join("")}</div>
+  </div>`;
+}
+function bindTrainingToolbar(sport) {
+  viewEl.querySelectorAll("[data-sport]").forEach((b) => (b.onclick = () => (location.hash = `#/training/${b.dataset.sport}`)));
+  viewEl.querySelectorAll("[data-weeks]").forEach((b) => (b.onclick = () => { trainingWeeks = Number(b.dataset.weeks); viewTraining(sport); }));
+}
+
+// Bestleistungen (app/records.py): schnellste Abschnitte aus den Zeitreihen, laengste Einheiten
+function bestValue(b, weight) {
+  if (b.kind === "time") return dur(b.value, true);
+  if (b.kind === "power") return `${n0(b.value)} W`;
+  if (b.kind === "distance") return `${km(b.value)} km`;
+  return `${n0(b.value)} Hm`;
+}
+function bestExtra(b, sport, weight) {
+  if (b.kind === "time") return sport === "running" ? `${pace((b.value / b.distance) * 1000)} /km` : `${n1((b.distance / b.value) * 3.6)} km/h`;
+  if (b.kind === "power" && weight) return `${n1(b.value / weight)} W/kg`;
+  return "";
+}
+// Garmins Rennprognose neben dem eigenen Bestwert: wie viel waere bei einem Rennen heute drin
+const PREDICTION = [["5k", "5 km", "time5K", 5000], ["10k", "10 km", "time10K", 10000], ["hm", "Halbmarathon", "timeHalfMarathon", 21097.5]];
+function predictionCell(b, pred) {
+  const row = PREDICTION.find((p) => p[0] === b.key);
+  const t = row && pred?.[row[2]];
+  if (!t) return "";
+  if (b.value == null) return `<b>${dur(t, true)}</b>`;
+  const gap = b.value - t;
+  return `<b>${dur(t, true)}</b> <span class="muted">${gap >= 1 ? `−${dur(gap, true)} möglich` : "erreicht"}</span>`;
+}
+function bestsCard(list, sport, weight, pred) {
+  let html = `<section class="card glass col-12"><div class="card-h"><div class="card-t">Bestleistungen</div><span class="small muted">alle gespeicherten Einheiten</span></div>`;
+  list = [...(list || [])];
+  const hasPred = sport === "running" && PREDICTION.some((p) => pred?.[p[2]]);
+  if (hasPred) {
+    // Distanzen mit Prognose, aber ohne eigenen Bestwert, trotzdem zeigen
+    PREDICTION.forEach(([key, label, field, distance], i) => {
+      if (!pred[field] || list.some((b) => b.key === key)) return;
+      const before = list.findIndex((b) => b.kind !== "time" || b.distance > distance);
+      list.splice(before < 0 ? list.length : before, 0, { key, label, kind: "time", distance, value: null });
+    });
+  }
+  if (!list.length) return `${html}<div class="empty-state">Noch keine Bestleistungen berechnet</div></section>`;
+  html += `<div class="table-wrap"><table class="t"><thead><tr><th>Leistung</th><th>Bestwert</th><th>${sport === "running" ? "Pace" : "Tempo"}</th><th>Datum</th><th>Vorher</th>${hasPred ? "<th>Prognose</th>" : ""}</tr></thead><tbody>${list.map((b) => (b.value == null
+    ? `<tr><td>${esc(b.label)}</td><td class="muted">noch nicht gelaufen</td><td></td><td></td><td></td><td>${predictionCell(b, pred)}</td></tr>`
+    : `<tr data-act="${b.id}" style="cursor:pointer">
+      <td>${esc(b.label)}${b.recent ? ` ${statusBadge("good", "Neu")}` : ""}</td><td><b>${bestValue(b)}</b></td><td>${bestExtra(b, sport, weight)}</td>
+      <td>${esc(fmtShort(b.date))}${b.date.slice(0, 4) !== String(new Date().getFullYear()) ? esc(b.date.slice(0, 4)) : ""}</td>
+      <td class="muted">${b.prev ? `${bestValue({ ...b, value: b.prev.value })} · ${esc(fmtShort(b.prev.date))}` : "–"}</td>${hasPred ? `<td style="white-space:nowrap">${predictionCell(b, pred)}</td>` : ""}</tr>`)).join("")}</tbody></table></div>
+    <div class="small muted" style="margin-top:8px">Abschnitte werden aus den gespeicherten Zeitreihen ermittelt (rund 400 Punkte je Einheit)${sport === "cycling" ? ", Leistungswerte deshalb erst ab 1 Minute" : ""}. „Neu“ = in den letzten 30 Tagen aufgestellt.${hasPred ? " Prognose = Garmins Rennprognose für heute; der Abstand zum Bestwert zeigt, was bei einem Rennen drin wäre. Bestwerte stammen meist aus dem Training, nicht aus Wettkämpfen." : ""}</div></section>`;
+  return html;
+}
+
+// Kraft je Uebung: bester Satz als geschaetztes 1RM (Epley), Volumen und Saetze je Einheit
+const EXERCISE = {
+  BENCH_PRESS: "Bankdrücken", SQUAT: "Kniebeuge", DEADLIFT: "Kreuzheben", ROW: "Rudern", PULL_UP: "Klimmzug", LAT_PULLDOWN: "Latzug",
+  SHOULDER_PRESS: "Schulterdrücken", LATERAL_RAISE: "Seitheben", CURL: "Bizeps-Curl", TRICEPS_EXTENSION: "Trizepsstrecken",
+  TRICEPS_PRESSDOWN: "Trizepsdrücken", FLYE: "Fliegende", CABLE_CROSSOVER: "Kabelzug-Crossover", SEATED_CABLE_ROW: "Rudern am Kabel",
+  SIT_UP: "Sit-up", CRUNCH: "Crunch", PUSH_UP: "Liegestütz", SHRUG: "Schulterheben", UPRIGHT_ROW: "Aufrechtes Rudern", LUNGE: "Ausfallschritt",
+  LEG_CURL: "Beinbeuger", WEIGHTED_LEG_CURL: "Beinbeuger", WEIGHTED_LEG_EXTENSIONS: "Beinstrecker", LEG_PRESS: "Beinpresse", CALF_RAISE: "Wadenheben",
+  HIP_RAISE: "Hüftheben", BARBELL_HIP_THRUST_ON_FLOOR: "Hip Thrust", HYPEREXTENSION: "Rückenstrecker", PLANK: "Unterarmstütz",
+  BARBELL_DEADLIFT: "Kreuzheben (Langhantel)", SUMO_DEADLIFT: "Sumo-Kreuzheben", DUMBBELL_SHOULDER_PRESS: "Schulterdrücken (Kurzhantel)",
+};
+const exName = (key) => EXERCISE[key] || (/^[A-Z0-9_]+$/.test(key) ? humanize(key) : key);
+const topSet = (x) => (x.topWeight ? `${n1(x.topWeight)} kg × ${x.topReps}` : `${x.topReps} Wdh.`);
+let exerciseKey = null;
+// Einmalig gemachte Uebungen haben keinen Verlauf und wuerden die Auswahl nur verstopfen
+const exList = (list) => { const multi = (list || []).filter((e) => e.sessions.length >= 2); return multi.length ? multi : list || []; };
+function exerciseCard(list) {
+  const all = list?.length || 0;
+  list = exList(list);
+  let html = `<section class="card glass col-12"><div class="card-h"><div class="card-t">Verlauf je Übung</div><span class="small muted">${list.length < all ? `${list.length} von ${all} Übungen (ab 2 Einheiten)` : `${all} Übungen im Zeitraum`}</span></div>`;
+  if (!list?.length) return `${html}<div class="empty-state">Keine erkannten Übungen im Zeitraum</div></section>`;
+  if (!list.some((e) => e.key === exerciseKey)) exerciseKey = list[0].key;
+  html += `<div class="chips" id="ex-chips">${list.map((e) => `<button class="chip ${e.key === exerciseKey ? "on" : ""}" data-ex="${esc(e.key)}" type="button">${esc(exName(e.key))} <span class="muted">${e.sessions.length}</span></button>`).join("")}</div>
+    <div id="ex-body" style="margin-top:14px"></div>
+    <div class="small muted" style="margin-top:8px">Geschätztes 1RM nach Epley aus dem besten Satz der Einheit, Wiederholungen über 12 zählen wie 12. Sätze ohne erkannte Übung fehlen hier.</div></section>`;
+  return html;
+}
+function exerciseBind(list, col) {
+  list = exList(list);
+  const body = $("#ex-body");
+  if (!body || !list?.length) return;
+  const draw = () => {
+    const ex = list.find((e) => e.key === exerciseKey) || list[0];
+    const rows = ex.sessions;
+    const weighted = rows.some((r) => r.e1rm > 0);
+    const first = rows[0], last = rows[rows.length - 1];
+    const delta = weighted && rows.length > 1 && first.e1rm ? ((last.e1rm - first.e1rm) / first.e1rm) * 100 : null;
+    body.innerHTML = `<div class="tiles" style="margin-bottom:12px">
+        <div class="tile" style="background:var(--chip)"><div class="t">Letzter Top-Satz</div><div class="v" style="font-size:20px">${esc(topSet(last))}</div><div class="s">${esc(fmtDay(last.date))}</div></div>
+        <div class="tile" style="background:var(--chip)"><div class="t">${weighted ? "Geschätztes 1RM" : "Beste Wiederholungen"}</div><div class="v" style="font-size:20px">${weighted ? `${n1(Math.max(...rows.map((r) => r.e1rm)))}<span class="unit">kg</span>` : Math.max(...rows.map((r) => r.topReps))}</div><div class="s">Bestwert im Zeitraum</div></div>
+        <div class="tile" style="background:var(--chip)"><div class="t">Veränderung</div><div class="v" style="font-size:20px">${delta == null ? "–" : `${delta >= 0 ? "+" : "−"}${n1(Math.abs(delta))}<span class="unit">%</span>`}</div><div class="s">1RM seit ${esc(fmtShort(first.date))}</div></div>
+        <div class="tile" style="background:var(--chip)"><div class="t">Einheiten</div><div class="v" style="font-size:20px">${rows.length}</div><div class="s">Ø ${n1(rows.reduce((a, r) => a + r.sets, 0) / rows.length)} Sätze</div></div>
+      </div>
+      <div class="chart" id="c-ex"></div>
+      <div class="table-wrap" style="margin-top:8px"><table class="t"><thead><tr><th>Datum</th><th>Top-Satz</th><th>1RM</th><th>Sätze</th><th>Wdh.</th><th>Volumen</th></tr></thead><tbody>${rows.slice(-8).reverse().map((r) => `<tr data-act="${r.id}" style="cursor:pointer"><td>${esc(fmtShort(r.date))}</td><td>${esc(topSet(r))}</td><td>${r.e1rm ? `${n1(r.e1rm)} kg` : "–"}</td><td>${r.sets}</td><td>${r.reps}</td><td>${r.volume ? `${n0(r.volume)} kg` : "–"}</td></tr>`).join("")}</tbody></table></div>`;
+    for (const c of charts) if (!c.el.isConnected) charts.delete(c);
+    chart($("#c-ex"), { n: rows.length, height: 180, aria: `Verlauf ${exName(ex.key)}`, xLabel: (i) => fmtShort(rows[i].date), tipTitle: (i) => fmtDay(rows[i].date), onClick: (i) => openActivity(rows[i].id),
+      lines: weighted
+        ? [{ label: "Geschätztes 1RM", color: col, values: rows.map((r) => r.e1rm || null), dots: true, fmt: (v) => `${n1(v)} kg` },
+          { label: "Gewicht Top-Satz", color: css("--ink-3"), values: rows.map((r) => r.topWeight || null), dash: true, fmt: (v) => `${n1(v)} kg` }]
+        : [{ label: "Wiederholungen Top-Satz", color: col, values: rows.map((r) => r.topReps), dots: true, fmt: (v) => String(v) }],
+      extraTip: (i) => [{ label: "Top-Satz", value: topSet(rows[i]) }, { label: "Sätze", value: String(rows[i].sets) }] });
+    if (weighted) $("#c-ex").insertAdjacentHTML("afterend", legend([{ label: "Geschätztes 1RM", color: col }, { label: "Gewicht Top-Satz (gestrichelt)", color: css("--ink-3") }]));
+  };
+  $("#ex-chips").onclick = (e) => {
+    const b = e.target.closest("[data-ex]");
+    if (!b) return;
+    exerciseKey = b.dataset.ex;
+    $("#ex-chips").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
+    draw();
+  };
+  draw();
+}
+
+// --- Gesamt: Intensitaetsverteilung, Jahresuebersicht, Archiv -------------------------
+let overviewYear = null;
+const archive = { sport: "all", q: "", limit: 40, day: null };
+const ZONE_VARS = ["--z1", "--z2", "--z3", "--z4", "--z5"];
+const ZONE_NAMES = ["Z1 Erholung", "Z2 Grundlage", "Z3 Tempo", "Z4 Schwelle", "Z5 Maximal"];
+const ALL_SPORTS = ["running", "cycling", "strength", "other"];
+
+async function viewOverview() {
+  setHeader("Training", "Gesamt");
+  const d = await api(`/api/overview?weeks=${trainingWeeks}${overviewYear ? `&year=${overviewYear}` : ""}`, { fresh: true });
+  overviewYear = d.year;
+  const iw = d.intensity;
+  const zsum = [0, 1, 2, 3, 4].map((z) => iw.reduce((a, w) => a + w.zones[z], 0));
+  const ztotal = zsum.reduce((a, b) => a + b, 0);
+  const share = (zs) => (ztotal ? Math.round((zs.reduce((a, z) => a + zsum[z], 0) / ztotal) * 100) : null);
+  const T = d.totals;
+  const sumT = (k) => ALL_SPORTS.reduce((a, s) => a + (T[s]?.[k] || 0), 0);
+  const yi = d.years.indexOf(d.year);
+
+  let html = `${trainingToolbar("all")}<div class="grid">`;
+  html += formCards(d.season);
+  html += `<section class="card glass col-8"><div class="card-h"><div class="card-t">Intensitätsverteilung</div><span class="small muted">Stunden je HF-Zone</span></div><div class="chart" id="c-int"></div>${legend(ZONE_NAMES.map((n, i) => ({ label: n, color: css(ZONE_VARS[i]), box: true })))}</section>`;
+  html += `<section class="card glass col-4"><div class="card-h"><div class="card-t">Verteilung im Zeitraum</div><span class="small muted">${hm(ztotal)} h</span></div>`;
+  html += ztotal ? `${zoneBars(zsum.map((secs, i) => ({ zone: i + 1, secs })), null)}
+      <div class="split3" style="margin-top:14px">
+        <div><b>${share([0, 1])} %</b><span>Locker · Z1–2</span></div>
+        <div><b>${share([2])} %</b><span>Mittel · Z3</span></div>
+        <div><b>${share([3, 4])} %</b><span>Hart · Z4–5</span></div>
+      </div>
+      <div class="small muted" style="margin-top:10px">Zeit mit Pulsmessung in den HF-Zonen der jeweiligen Einheit. Im Ausdauertraining gelten grob 80 % locker als Richtwert.</div>`
+    : '<div class="empty-state">Keine Zonendaten im Zeitraum</div>';
+  html += `</section>`;
+
+  html += `<section class="card glass col-12"><div class="card-h"><div class="card-t">Jahr ${d.year}</div>
+      <div class="weeknav"><button class="icon-btn glass" id="yr-prev" aria-label="Vorheriges Jahr" ${yi <= 0 ? "disabled" : ""}>${icon("left", 2.2)}</button><button class="icon-btn glass" id="yr-next" aria-label="Nächstes Jahr" ${yi >= d.years.length - 1 ? "disabled" : ""}>${icon("right", 2.2)}</button></div></div>
+    <div class="tiles" style="margin-bottom:14px">
+      <div class="tile" style="background:var(--chip)"><div class="t">${icon("calendar")}Einheiten</div><div class="v">${n0(sumT("count"))}</div><div class="s">an ${d.days.length} Tagen</div></div>
+      <div class="tile" style="background:var(--chip)"><div class="t">${icon("clock")}Zeit</div><div class="v">${hm(sumT("duration"))}<span class="unit">h</span></div><div class="s">${ALL_SPORTS.filter((s) => T[s].count).map((s) => `${SPORT[s]} ${hm(T[s].duration)}`).join(" · ")}</div></div>
+      <div class="tile" style="background:var(--chip)"><div class="t">${icon("running")}Distanz</div><div class="v">${km(T.running.distance + T.cycling.distance)}<span class="unit">km</span></div><div class="s">Laufen ${km(T.running.distance)} · Rad ${km(T.cycling.distance)}</div></div>
+      <div class="tile" style="background:var(--chip)"><div class="t">${icon("trend")}Höhenmeter</div><div class="v">${n0(sumT("elevation"))}<span class="unit">m</span></div><div class="s">Trainingslast ${n0(sumT("load"))}</div></div>
+    </div>
+    <div class="heat-wrap"><div class="heat" id="heat"></div></div>
+    <div class="legend" style="justify-content:flex-end"><span>weniger</span>${[1, 2, 3, 4].map((l) => `<span><i class="box heat-l${l}"></i></span>`).join("")}<span>mehr Trainingszeit</span></div>
+  </section>`;
+  html += `<section class="card glass col-12"><div class="card-h"><div class="card-t">Stunden pro Monat</div><span class="small muted">${d.year}</span></div><div class="chart" id="c-mon"></div>${legend(ALL_SPORTS.filter((s) => T[s].count).map((s) => ({ label: SPORT[s], color: sportColor(s), box: true })))}</section>`;
+  html += `<section class="card glass col-12"><div class="card-h"><div class="card-t">Archiv ${d.year}</div><span class="small muted" id="ar-count"></span></div>
+    <div class="archive-bar">
+      <div class="chips" id="ar-sports">${["all", ...ALL_SPORTS.filter((s) => T[s].count)].map((s) => `<button class="chip ${archive.sport === s ? "on" : ""}" data-arsport="${s}" type="button">${s === "all" ? "Alle" : SPORT[s]}</button>`).join("")}</div>
+      <input class="search" id="ar-q" type="search" placeholder="Suchen: Name, Datum (3.8.) oder Monat" value="${esc(archive.q)}" aria-label="Einheiten durchsuchen">
+    </div>
+    <div class="list" id="ar-list"></div>
+    <div style="text-align:center;margin-top:12px"><button class="sync-btn glass" id="ar-more" type="button" style="padding:8px 16px">Mehr anzeigen</button></div>
+  </section></div>`;
+  render(html);
+  bindTrainingToolbar("all");
+  formBind(d.season);
+
+  chart($("#c-int"), { n: iw.length, height: 200, aria: "Intensitätsverteilung pro Woche", xLabel: (i) => fmtShort(iw[i].week), tipTitle: (i) => `Woche ab ${fmtDay(iw[i].week)}`, yFmt: (v) => n1(v),
+    bars: ZONE_VARS.map((v, z) => ({ label: ZONE_NAMES[z], color: css(v), values: iw.map((w) => w.zones[z] / 3600), fmt: (x) => `${hm(x * 3600)} h` })) });
+  chart($("#c-mon"), { n: 12, height: 190, aria: "Stunden pro Monat", xLabel: (i) => MON[i], tipTitle: (i) => `${MON[i]} ${d.year}`, yFmt: (v) => n0(v),
+    bars: ALL_SPORTS.filter((s) => T[s].count).map((s) => ({ label: SPORT[s], color: sportColor(s), values: d.months.map((m) => m[s].duration / 3600), fmt: (x) => `${hm(x * 3600)} h` })),
+    extraTip: (i) => [{ label: "Einheiten", value: String(ALL_SPORTS.reduce((a, s) => a + d.months[i][s].count, 0)) }, { label: "Distanz", value: `${km(d.months[i].running.distance + d.months[i].cycling.distance)} km` }] });
+  heatmap($("#heat"), d);
+
+  const shiftYear = (k) => { overviewYear = d.years[yi + k]; archive.day = null; archive.limit = 40; viewOverview(); };
+  $("#yr-prev").onclick = () => shiftYear(-1);
+  $("#yr-next").onclick = () => shiftYear(1);
+  const drawList = () => {
+    const q = archive.q.trim().toLowerCase();
+    const rows = d.activities.filter((a) => {
+      if (archive.sport !== "all" && a.sport !== archive.sport) return false;
+      if (archive.day && (a.start || "").slice(0, 10) !== archive.day) return false;
+      if (!q) return true;
+      const dt = pd(a.start);
+      const hay = `${a.name || ""} ${SPORT[a.sport] || ""} ${fmtShort(a.start)} ${MON[dt.getMonth()]} ${a.start.slice(0, 10)}`.toLowerCase();
+      return q.split(/\s+/).every((w) => hay.includes(w));
+    });
+    $("#ar-count").textContent = `${rows.length} ${rows.length === 1 ? "Einheit" : "Einheiten"}${archive.day ? ` am ${fmtDay(archive.day)}` : ""}`;
+    $("#ar-list").innerHTML = rows.length ? rows.slice(0, archive.limit).map((a) => activityRow(a)).join("") : '<div class="empty-state">Keine Einheiten gefunden</div>';
+    $("#ar-more").hidden = rows.length <= archive.limit;
+  };
+  $("#ar-sports").onclick = (e) => {
+    const b = e.target.closest("[data-arsport]");
+    if (!b) return;
+    archive.sport = b.dataset.arsport; archive.limit = 40;
+    $("#ar-sports").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b));
+    drawList();
+  };
+  $("#ar-q").oninput = (e) => { archive.q = e.target.value; archive.day = null; archive.limit = 40; markDay(); drawList(); };
+  $("#ar-more").onclick = () => { archive.limit += 40; drawList(); };
+  const markDay = () => $("#heat").querySelectorAll("[data-day]").forEach((c) => c.classList.toggle("sel", c.dataset.day === archive.day));
+  $("#heat").onclick = (e) => {
+    const c = e.target.closest("[data-day]");
+    if (!c || !c.dataset.count) return;
+    archive.day = archive.day === c.dataset.day ? null : c.dataset.day;
+    archive.limit = 40;
+    markDay(); drawList();
+    if (archive.day) $("#ar-list").scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  markDay();
+  drawList();
+}
+
+// Formkurve und Wettkampfliste (app/season.py)
+function formCards(se) {
+  if (!se) return "";
+  const f = se.status, fs = se.series || [];
+  let html = `<section class="card glass col-8"><div class="card-h"><div class="card-t">Formkurve</div><span class="small muted">aus Garmins Trainingslast</span></div>`;
+  if (!f || fs.length < 14) html += '<div class="empty-state">Noch zu wenige Trainingstage für eine Formkurve</div>';
+  else html += `<div class="tiles" style="margin-bottom:12px">
+      <div class="tile" style="background:var(--chip)"><div class="t">Fitness</div><div class="v">${n0(f.ctl)}</div><div class="s">${f.ramp28 == null ? "42-Tage-Mittel" : `${f.ramp28 >= 0 ? "+" : "−"}${n1(Math.abs(f.ramp28))} in 4 Wochen`}</div></div>
+      <div class="tile" style="background:var(--chip)"><div class="t">Ermüdung</div><div class="v">${n0(f.atl)}</div><div class="s">7-Tage-Mittel</div></div>
+      <div class="tile" style="background:var(--chip)"><div class="t">Form</div><div class="v">${formPct(f)}</div><div class="s">${esc(f.zone?.label || "")}</div></div>
+      <div class="tile" style="background:var(--chip)"><div class="t">Trend 7 Tage</div><div class="v">${f.ramp7 == null ? "–" : `${f.ramp7 >= 0 ? "+" : "−"}${n1(Math.abs(f.ramp7))}`}</div><div class="s">Fitness pro Woche</div></div>
+    </div>
+    <div class="chart" id="c-form"></div>
+    ${legend([{ label: "Fitness", color: css("--accent") }, { label: "Ermüdung (gestrichelt)", color: css("--critical") }])}
+    <div class="chart" id="c-tsb" style="margin-top:10px"></div>
+    ${legend([{ label: "Form (Fitness minus Ermüdung)", color: css("--ink-2") }, { label: "Aufbaubereich", color: css("--good"), box: true }])}
+    <div class="small muted" style="margin-top:8px">${esc(f.zone?.text || "")} Fitness ist das 42-Tage-Mittel deiner täglichen Trainingslast, Ermüdung das 7-Tage-Mittel. Die Zahlen sind nicht mit TSS-Werten anderer Plattformen vergleichbar.${f.days < 120 ? ` Die Kurve beginnt mit deinem ersten gespeicherten Training vor ${f.days} Tagen; die ersten sechs Wochen unterschätzen die Fitness.` : ""}</div>`;
+  html += `</section>`;
+  html += `<section class="card glass col-4"><div class="card-h"><div class="card-t">Wettkämpfe</div><button class="chip" id="ev-toggle" type="button">${icon("plus", 2.2)}Hinzufügen</button></div>
+    <form class="ev-form" id="ev-form" hidden>
+      <input class="search" name="name" placeholder="Name, z. B. Stadtlauf Halbmarathon" required maxlength="80" aria-label="Name">
+      <div class="ev-row"><input class="search" name="date" type="date" required aria-label="Datum">
+        <select class="search" name="kind" aria-label="Art">${Object.entries(EVENT_KIND).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
+      <input class="search" name="detail" placeholder="Distanz, z. B. 21,1 km" maxlength="80" aria-label="Distanz">
+      <div class="ev-row"><button class="sync-btn glass" type="submit" style="padding:8px 16px">Speichern</button><span class="small muted" id="ev-msg"></span></div>
+    </form>
+    <div class="list" id="ev-list">${se.events.length ? se.events.map((e) => `<div class="row" style="grid-template-columns:auto 1fr auto">
+        <span class="ic" style="background:var(--chip);color:var(--ink-2)">${icon(EVENT_ICON[e.kind] || "calendar", 2)}</span>
+        <span style="min-width:0"><div class="ttl">${esc(e.name)}</div><div class="meta"><span>${esc(fmtDate(e.date))}</span>${e.detail ? `<span>${esc(e.detail)}</span>` : ""}</div>
+          <div class="meta"><span><b>${esc(countdown(e.days))}</b></span>${e.prediction ? `<span>Prognose ${dur(e.prediction, true)}</span>` : ""}</div></span>
+        <button class="icon-btn" data-evdel="${e.id}" type="button" aria-label="${esc(e.name)} löschen" title="Löschen">${icon("x", 2)}</button></div>`).join("") : '<div class="empty-state">Noch kein Wettkampf eingetragen</div>'}</div>
+    ${se.past?.length ? `<div class="small muted" style="margin-top:10px">Vergangen: ${se.past.map((e) => `${esc(e.name)} (${esc(fmtShort(e.date))}${esc(e.date.slice(0, 4))})`).join(", ")}</div>` : ""}
+  </section>`;
+  return html;
+}
+function formBind(se) {
+  const fs = se?.series || [];
+  if ($("#c-form") && fs.length) {
+    const base = { n: fs.length, xLabel: (i) => fmtShort(fs[i].date), tipTitle: (i) => fmtDay(fs[i].date) };
+    chart($("#c-form"), { ...base, height: 170, aria: "Fitness und Ermüdung", yMin: 0,
+      lines: [{ label: "Fitness", color: css("--accent"), values: fs.map((x) => x.ctl), area: true, width: 2, fmt: n1 },
+        { label: "Ermüdung", color: css("--critical"), values: fs.map((x) => x.atl), dash: true, width: 1.4, fmt: n1 }],
+      extraTip: (i) => [{ label: "Trainingslast des Tages", value: n0(fs[i].load) }] });
+    chart($("#c-tsb"), { ...base, height: 130, aria: "Form",
+      band: { low: fs.map((x) => -0.3 * x.ctl), high: fs.map((x) => -0.1 * x.ctl), label: "Aufbaubereich", color: css("--good") },
+      lines: [{ label: "Form", color: css("--ink-2"), values: fs.map((x) => x.tsb), width: 1.8, fmt: (v) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${n1(Math.abs(v))}` }] });
+  }
+  const form = $("#ev-form");
+  if (!form) return;
+  $("#ev-toggle").onclick = () => { form.hidden = !form.hidden; if (!form.hidden) form.elements.name.focus(); };
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(form));
+    const res = await fetch("/api/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+    if (res?.ok) viewOverview(); else $("#ev-msg").textContent = "Speichern fehlgeschlagen";
+  };
+  $("#ev-list").onclick = async (e) => {
+    const b = e.target.closest("[data-evdel]");
+    if (!b) return;
+    if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.classList.add("armed"); b.title = "Nochmal tippen zum Löschen"; setTimeout(() => { b.dataset.armed = ""; b.classList.remove("armed"); }, 3000); return; }
+    const res = await fetch(`/api/events/${b.dataset.evdel}`, { method: "DELETE" }).catch(() => null);
+    if (res?.ok) viewOverview();
+  };
+}
+
+// Jahres-Heatmap: eine Spalte je Woche (Mo oben), Farbe nach Trainingszeit des Tages
+function heatmap(el, d) {
+  const byDay = new Map(d.days.map((x) => [x.date, x]));
+  const start = new Date(d.year, 0, 1), end = new Date(d.year, 11, 31);
+  const lead = (start.getDay() + 6) % 7;
+  const todayIso = iso(new Date());
+  let cells = "", months = "", col = 0;
+  for (let i = 0; i < lead; i++) cells += "<i></i>";
+  for (let dt = new Date(start), k = lead; dt <= end; dt.setDate(dt.getDate() + 1), k++) {
+    const ds = iso(dt), x = byDay.get(ds);
+    if (dt.getDate() === 1) { col = Math.floor(k / 7); months += `<span style="grid-column:${col + 1}">${MON[dt.getMonth()]}</span>`; }
+    const min = x ? x.duration / 60 : 0;
+    const lvl = !x ? 0 : min < 40 ? 1 : min < 70 ? 2 : min < 100 ? 3 : 4;
+    cells += `<i class="heat-l${lvl}${ds === todayIso ? " now" : ""}${ds > todayIso ? " future" : ""}" data-day="${ds}"${x ? ` data-count="${x.count}"` : ""}></i>`;
+  }
+  el.innerHTML = `<div class="heat-months">${months}</div><div class="heat-days"><span>Mo</span><span></span><span>Mi</span><span></span><span>Fr</span><span></span><span>So</span></div><div class="heat-grid">${cells}</div>`;
+  const grid = el.querySelector(".heat-grid");
+  grid.onmousemove = (e) => {
+    const c = e.target.closest("[data-day]");
+    if (!c) return hideTip();
+    const x = byDay.get(c.dataset.day);
+    showTip(e, fmtDay(c.dataset.day), x
+      ? [{ label: x.sports.map((s) => SPORT[s]).join(", "), value: dur(x.duration) }, { label: "Trainingslast", value: n0(x.load) }]
+      : [{ label: "Kein Training", value: "" }]);
+  };
+  grid.onmouseleave = hideTip;
+  // Auf dem Handy liegt der aktuelle Monat sonst ausserhalb des sichtbaren Bereichs
+  const now = el.querySelector(".now");
+  if (now) el.parentElement.scrollLeft = Math.max(0, now.offsetLeft - el.parentElement.clientWidth * 0.7);
 }
 
 // Fortschritt ueber vergleichbare Einheiten (app/analysis.py progress): Schwellenlaeufe und Zone-3-Laeufe
@@ -848,6 +1233,17 @@ function powerZones(z) {
   }).join("")}</tbody></table>`;
 }
 
+const STRENGTH = { strong: "Deutlich", medium: "Mittel", weak: "Schwach", flat: "Kein Zusammenhang", none: "Zu wenige Daten" };
+function relationsCard(list) {
+  if (!list?.length) return "";
+  return `<section class="card glass col-12"><div class="card-h"><div class="card-t">${icon("trend")}Zusammenhänge</div><span class="small muted">letzte 120 Tage</span></div>
+    <div class="relations">${list.map((r) => `<div class="relation">
+      <div class="rel-h"><b>${esc(r.title)}</b><span class="badge rel-${esc(r.strength)}">${esc(STRENGTH[r.strength] || "")}</span></div>
+      <div class="an-x">${esc(r.text)}</div>
+      <div class="small muted" style="margin-top:4px">${r.r != null ? `r = ${r.r.toFixed(2).replace(".", ",").replace("-", "−")} · ` : ""}${r.n} Tage</div></div>`).join("")}</div>
+    <div class="small muted" style="margin-top:12px">Die Tage werden am Median des ersten Werts geteilt und verglichen. Das sind Korrelationen aus wenigen Wochen: Sie zeigen, was bei dir zusammen auftritt, nicht was was verursacht. Die Laufeffizienz mischt lockere und harte Läufe.</div></section>`;
+}
+
 let healthDays = 30;
 async function viewHealth() {
   setHeader("Health", `Letzte ${healthDays} Tage`);
@@ -883,6 +1279,7 @@ async function viewHealth() {
       ${legend([{ label: "Gegessen", color: css("--accent"), box: true }, { label: "Verbrauch Garmin", color: css("--ink-3") }])}</section>
     <section class="card glass col-6"><div class="card-h"><div class="card-t">${icon("flame")}Makros</div><span class="small muted">kcal aus Eiweiß, KH, Fett</span></div><div class="chart" id="h-macros"></div>
       ${legend(MACROS.map(([, l, c]) => ({ label: l, color: css(c), box: true })))}</section>` : ""}
+    ${relationsCard(d.relations)}
   </div>
   <button class="sync-btn glass logout" id="logout" type="button">Auf diesem Gerät abmelden</button>`;
   render(html);
@@ -958,6 +1355,7 @@ async function openActivity(id) {
     stats = stat("Distanz", `${km(a.distance)}${u("km")}`) + stat("Zeit", dur(a.duration, true)) + stat("Ø Tempo", `${kmh(a.avgSpeed)}${u("km/h")}`)
       + stat("Ø Leistung", `${n0(a.avgPower)}${u("W")}`) + stat("NP", `${n0(a.normPower)}${u("W")}`) + stat("Ø HF", `${n0(a.avgHr)}${u("bpm")}`)
       + stat("Kadenz", `${n0(a.cadence)}${u("rpm")}`) + stat("Anstieg", `${n0(a.elevation)}${u("m")}`) + stat("Max HF", `${n0(a.maxHr)}${u("bpm")}`);
+    if (a.ride) stats += stat("Intensität", `${a.ride.if.toFixed(2).replace(".", ",")}${u("IF")}`) + stat("Belastung", `${n0(a.ride.tss)}${u("TSS")}`) + stat("Variabilität", a.ride.vi.toFixed(2).replace(".", ","));
   } else {
     const sets = (det.sets || []).filter((s) => s.type === "ACTIVE");
     stats = stat("Zeit", dur(a.duration, true)) + stat("Sätze", sets.length || a.sets || "–") + stat("Wdh.", sets.reduce((x, s) => x + (s.reps || 0), 0) || "–")
@@ -973,7 +1371,11 @@ async function openActivity(id) {
         <button class="icon-btn glass close" id="sheet-close" type="button" aria-label="Schließen">${icon("x", 2.2)}</button>
       </div></div>
     <div class="stats">${stats}</div>`;
-  if (data.analysis?.items?.length) html += analysisCard(data.analysis);
+  if (a.records?.length) html += `<div class="records">${statusBadge("good", "Bestleistung")}<span class="small ink2">${esc(a.records.join(" · "))}</span></div>`;
+  if (data.analysis?.items?.length) html += analysisCard(data.analysis, sp);
+  if (data.similar?.length) html += `<div class="section"><h3>Vergleichen</h3>
+    <div class="chips" id="cmp-chips">${data.similar.map((x) => `<button class="chip" data-cmp="${x.id}" type="button" title="${esc(x.name || "")}">${esc(fmtShort(x.start))}${x.start.slice(0, 4) !== a.start.slice(0, 4) ? esc(x.start.slice(2, 4)) : ""} <span class="muted">${sp === "running" ? paceFromSpeed(x.avgSpeed) : x.avgPower ? `${n0(x.avgPower)} W` : `${kmh(x.avgSpeed)} km/h`}${x.sameName ? "" : ` · ${km(x.distance)} km`}</span></button>`).join("")}</div>
+    <div id="cmp-body"><div class="small muted" style="margin-top:8px">Ähnliche Einheit wählen: gleicher Name zuerst, sonst ähnliche Distanz.</div></div></div>`;
   if (det.route?.length > 1) html += `<div class="section"><h3>Strecke</h3><div class="route glass" style="border-radius:20px;padding:10px" id="d-route"></div></div>`;
   const S = det.series || {};
   if (S.hr) html += `<div class="section"><h3>Herzfrequenz</h3><div class="chart" id="d-hr"></div></div>`;
@@ -988,6 +1390,13 @@ async function openActivity(id) {
   sheet.innerHTML = html;
   $("#sheet-close").onclick = closeSheet;
   $("#sheet-share").onclick = () => openStudio(exportPayload(a, det));
+  if ($("#cmp-chips")) $("#cmp-chips").onclick = (e) => {
+    const b = e.target.closest("[data-cmp]");
+    if (!b) return;
+    const on = !b.classList.contains("on");
+    $("#cmp-chips").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", on && c === b));
+    compareWith(data, on ? Number(b.dataset.cmp) : null);
+  };
 
   if (det.route?.length > 1) routeMap($("#d-route"), det.route, col);
   const t = S.t || S.d || [];
@@ -1041,14 +1450,92 @@ function exportPayload(a, det) {
 }
 
 // Regelbasierte Laufanalyse (app/analysis.py): auffaellige Punkte als Liste, unauffaellige zugeklappt
-function analysisCard(an) {
+// --- Zwei Einheiten vergleichen ------------------------------------------------------------
+// Beide Zeitreihen werden auf ein gemeinsames Distanzraster gelegt, damit Kilometer 3 neben Kilometer 3 steht.
+function resample(S, grid) {
+  const d = S.d || [], t = S.t || [];
+  const at = (arr) => {
+    if (!arr) return null;
+    let i = 0;
+    return grid.map((g) => {
+      if (g > d[d.length - 1] || g < d[0]) return null;
+      while (i + 1 < d.length - 1 && d[i + 1] < g) i++;
+      const a = arr[i], b = arr[i + 1], span = d[i + 1] - d[i];
+      if (a == null || b == null) return a ?? b ?? null;
+      return a + (b - a) * (span > 0 ? (g - d[i]) / span : 0);
+    });
+  };
+  const time = at(t);
+  const W = 3; // Glaettung ueber drei Rasterschritte
+  const speed = time && grid.map((g, k) => (k < W || time[k] == null || time[k - W] == null || time[k] <= time[k - W] ? null : (g - grid[k - W]) / (time[k] - time[k - W])));
+  return { hr: at(S.hr), p: at(S.p), speed };
+}
+async function compareWith(data, otherId) {
+  const body = $("#cmp-body");
+  if (!body) return;
+  for (const c of charts) if (c.el.closest?.("#cmp-body")) charts.delete(c);
+  if (!otherId) { body.innerHTML = ""; return; }
+  body.innerHTML = '<div class="skeleton" style="height:120px;margin-top:10px"></div>';
+  let other;
+  try { other = await api(`/api/activity/${otherId}`); } catch { body.innerHTML = '<div class="empty-state">Vergleich nicht verfügbar</div>'; return; }
+  const a = data.activity, b = other.activity, sp = a.sport, run = sp === "running";
+  const A = data.detail?.series || {}, B = other.detail?.series || {};
+  const ef = (x) => (x.avgSpeed && x.avgHr ? (x.avgSpeed * 60) / x.avgHr : null);
+  const delta = (x, y, fmt, unit = "") => (x == null || y == null ? "–" : `${x - y > 0 ? "+" : x - y < 0 ? "−" : "±"}${fmt(Math.abs(x - y))}${unit}`);
+  const pc = (x) => (x.avgSpeed ? 1000 / x.avgSpeed : null);
+  const R = (label, va, vb, d) => `<tr><td>${label}</td><td><b>${va}</b></td><td>${vb}</td><td class="muted">${d}</td></tr>`;
+  let rows = R("Distanz", `${km(a.distance)} km`, `${km(b.distance)} km`, delta(a.distance / 1000, b.distance / 1000, n1, " km"))
+    + R("Zeit", dur(a.duration, true), dur(b.duration, true), delta(a.duration, b.duration, (v) => dur(v, true)));
+  rows += run ? R("Pace", `${pace(pc(a))} /km`, `${pace(pc(b))} /km`, delta(pc(a), pc(b), n0, " s/km"))
+    : R("Ø Tempo", `${kmh(a.avgSpeed)} km/h`, `${kmh(b.avgSpeed)} km/h`, delta(a.avgSpeed * 3.6, b.avgSpeed * 3.6, n1, " km/h"));
+  if (!run && (a.avgPower || b.avgPower)) rows += R("Ø Leistung", `${n0(a.avgPower)} W`, `${n0(b.avgPower)} W`, delta(a.avgPower, b.avgPower, n0, " W")) + R("NP", `${n0(a.normPower)} W`, `${n0(b.normPower)} W`, delta(a.normPower, b.normPower, n0, " W"));
+  rows += R("Ø HF", `${n0(a.avgHr)} bpm`, `${n0(b.avgHr)} bpm`, delta(a.avgHr, b.avgHr, n0, " bpm"));
+  if (ef(a) && ef(b)) rows += R("Effizienz", `${ef(a).toFixed(2)} m/Schlag`, `${ef(b).toFixed(2)}`, `${ef(a) >= ef(b) ? "+" : "−"}${n1(Math.abs(ef(a) / ef(b) - 1) * 100)} %`);
+  rows += R("Kadenz", n0(a.cadence), n0(b.cadence), delta(a.cadence, b.cadence, n0))
+    + R("Anstieg", `${n0(a.elevation)} m`, `${n0(b.elevation)} m`, delta(a.elevation, b.elevation, n0, " m"))
+    + R("Last", n0(a.load), n0(b.load), delta(a.load, b.load, n0));
+  const colA = sportColor(sp), colB = css("--ink-3");
+  const labA = fmtShort(a.start), labB = fmtShort(b.start);
+  let html = `<div class="table-wrap" style="margin-top:12px"><table class="t"><thead><tr><th></th><th>${esc(labA)}</th><th>${esc(labB)}</th><th>Differenz</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const both = A.d?.length > 10 && B.d?.length > 10 && A.t && B.t;
+  const power = !run && A.p && B.p;
+  if (both) html += `<h3 class="cmp-h">${run ? "Pace" : power ? "Leistung" : "Tempo"} über die Distanz</h3><div class="chart" id="cmp-main"></div>
+    ${A.hr && B.hr ? '<h3 class="cmp-h">Herzfrequenz über die Distanz</h3><div class="chart" id="cmp-hr"></div>' : ""}
+    ${legend([{ label: `${labA} (diese Einheit)`, color: colA }, { label: `${labB} (gestrichelt)`, color: colB }])}`;
+  const la = (data.detail?.laps || []), lb = (other.detail?.laps || []);
+  if (la.length > 1 && la.length === lb.length && la.length <= 40) {
+    const v = (l) => (run ? paceFromSpeed(l.averageSpeed) : kmh(l.averageSpeed));
+    html += `<h3 class="cmp-h">Runden</h3><div class="table-wrap"><table class="t"><thead><tr><th>#</th><th>${run ? "Pace" : "km/h"} ${esc(labA)}</th><th>${esc(labB)}</th><th>Ø HF ${esc(labA)}</th><th>${esc(labB)}</th></tr></thead><tbody>
+      ${la.map((l, i) => `<tr><td>${i + 1}</td><td><b>${v(l)}</b></td><td>${v(lb[i])}</td><td><b>${n0(l.averageHR)}</b></td><td>${n0(lb[i].averageHR)}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+  body.innerHTML = html;
+  if (!both) return;
+  const N = 140, maxD = Math.max(A.d[A.d.length - 1], B.d[B.d.length - 1]);
+  const grid = Array.from({ length: N }, (_, k) => (maxD * k) / (N - 1));
+  const ra = resample(A, grid), rb = resample(B, grid);
+  const common = { n: N, height: 150, x: grid, xTick: (v) => km(v), xLabel: (i) => km(grid[i]), tipTitle: (i) => `${km(grid[i])} km` };
+  const pair = (va, vb, fmt, width = 1.6) => [{ label: labA, color: colA, values: va, width, fmt }, { label: labB, color: colB, values: vb, width, dash: true, fmt }];
+  if (run) {
+    // Gehpausen und Ausreisser kappen, Achse umgedreht (schneller = oben)
+    const toPace = (sp2) => sp2.map((x) => (x && x > 1.4 ? -Math.min(1000 / x, 480) : null));
+    chart($("#cmp-main"), { ...common, aria: "Pace im Vergleich", lines: pair(toPace(ra.speed), toPace(rb.speed), (x) => `${pace(-x)} /km`), yFmt: (x) => pace(-x), tickStep: 30 });
+  } else if (power) {
+    chart($("#cmp-main"), { ...common, aria: "Leistung im Vergleich", yMin: 0, lines: pair(ra.p, rb.p, (x) => `${n0(x)} W`, 1.3) });
+  } else {
+    const k = (sp2) => sp2.map((x) => (x == null ? null : x * 3.6));
+    chart($("#cmp-main"), { ...common, aria: "Tempo im Vergleich", lines: pair(k(ra.speed), k(rb.speed), (x) => `${n1(x)} km/h`) });
+  }
+  if ($("#cmp-hr")) chart($("#cmp-hr"), { ...common, aria: "Herzfrequenz im Vergleich", lines: pair(ra.hr, rb.hr, (x) => `${n0(x)} bpm`) });
+}
+
+function analysisCard(an, sport) {
   const row = (i) => `<li class="an-${esc(i.level)}"><span class="an-dot"></span><div><div class="an-t">${esc(i.title)}<span class="an-area">${esc(i.area)}</span></div><div class="an-x">${esc(i.text)}</div></div></li>`;
   const flagged = an.items.filter((i) => i.level !== "ok"), fine = an.items.filter((i) => i.level === "ok");
   return `<div class="section"><h3>Analyse</h3><div class="analysis glass an-${esc(an.level)}">
     <div class="an-head">${esc(an.summary)}</div>
     ${flagged.length ? `<ul>${flagged.map(row).join("")}</ul>` : ""}
     ${fine.length ? `<details><summary>${fine.length} unauffällig</summary><ul>${fine.map(row).join("")}</ul></details>` : ""}
-    <div class="an-foot">Regelbasiert aus deinen Daten, kein Ersatz für Technikanalyse.</div></div></div>`;
+    <div class="an-foot">${sport === "cycling" ? "Regelbasiert aus deinen Daten. Leistungswerte beziehen sich auf die in Garmin hinterlegte FTP." : "Regelbasiert aus deinen Daten, kein Ersatz für Technikanalyse."}</div></div></div>`;
 }
 
 function zoneBars(zones, unit = "bpm") {
@@ -1056,7 +1543,7 @@ function zoneBars(zones, unit = "bpm") {
   const max = Math.max(...zones.map((z) => z.secs || 0)) || 1;
   const cols = ["--z1", "--z2", "--z3", "--z4", "--z5", "--z5", "--z5"];
   return `<div class="zones">${zones.map((z, i) => `<div class="zone"><span class="muted">Z${z.zone}</span>
-    <div class="bar" title="ab ${z.low} ${unit}"><i style="width:${((z.secs || 0) / max) * 100}%;background:var(${cols[i]})"></i></div>
+    <div class="bar"${unit ? ` title="ab ${z.low} ${unit}"` : ""}><i style="width:${((z.secs || 0) / max) * 100}%;background:var(${cols[i]})"></i></div>
     <span class="num" style="text-align:right;white-space:nowrap;min-width:92px">${dur(z.secs)} <span class="muted">${n0(((z.secs || 0) / total) * 100)} %</span></span></div>`).join("")}</div>`;
 }
 
@@ -1176,6 +1663,189 @@ syncBtn.addEventListener("click", async () => {
   route();
 });
 
+
+// --- Einstellungen: Garmin-Login, MyWhoosh-Sync ----------------------------------------
+
+const BOOKMARKLET = "javascript:(function(){var t=localStorage.getItem('webToken');if(!t){var c=document.cookie.match(/whoosh_token=([^;]+)/);t=c&&c[1]}if(!t){alert('Bitte zuerst bei MyWhoosh anmelden');return}navigator.clipboard.writeText(t).then(function(){alert('MyWhoosh-Token kopiert. Jetzt im Dashboard einfuegen.')},function(){prompt('Token kopieren:',t)})})()";
+const MW_PRESETS = { 1: ["21:30"], 2: ["07:00", "21:30"], 3: ["07:00", "13:00", "21:30"], 4: ["07:00", "12:00", "17:00", "21:30"] };
+const fmtWhen = (iso) => { if (!iso) return "–"; const d = new Date(iso); return `${d.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" })}, ${d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr`; };
+
+async function sendJson(path, method, body) {
+  const res = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined }).catch(() => null);
+  if (res?.status === 401) { location.replace("/login.html"); throw new Error("Anmeldung nötig"); }
+  const data = res ? await res.json().catch(() => ({})) : {};
+  return { ok: !!res?.ok, data: res ? data : { error: "Keine Verbindung" } };
+}
+
+async function viewSettings(keep) {
+  setHeader("Einstellungen", "Garmin und MyWhoosh");
+  const st = await api("/api/settings", { fresh: true });
+  const g = st.garmin, m = st.mywhoosh;
+  const gOk = g.hasTokens && !g.authError;
+  const icu = m.source === "intervals";
+  const times = keep?.times || m.times;
+  const timeRow = (t, i) => `<div class="time-row"><input class="field" type="time" value="${esc(t)}" data-time="${i}" aria-label="Uhrzeit ${i + 1}" required>
+    <button class="icon-btn" type="button" data-timedel="${i}" aria-label="Uhrzeit entfernen" ${times.length < 2 ? "disabled" : ""}>${icon("x", 2)}</button></div>`;
+  let html = `<div class="grid">`;
+
+  html += `<section class="card glass ${icu ? "col-12" : "col-6"}"><div class="card-h"><div class="card-t">Garmin Connect</div>
+      <span class="chip ${gOk ? "on" : ""}">${gOk ? "Verbunden" : g.authError ? "Anmeldung abgelaufen" : "Nicht verbunden"}</span></div>
+    <p class="small muted" style="margin:0 0 12px">${gOk ? "Das Dashboard ist bei Garmin angemeldet. Nur bei Problemen oder Kontowechsel neu anmelden." : "Melde dich einmal an, auch mit Bestätigungscode (MFA). Das Passwort wird nur für die Anmeldung verwendet und nicht gespeichert, nur der Token."}</p>
+    <form class="set-form" id="g-form" autocomplete="off" ${g.mfaPending ? "hidden" : ""}>
+      <input class="field" type="email" name="email" placeholder="Garmin E-Mail" autocomplete="username" required>
+      <input class="field" type="password" name="password" placeholder="Garmin Passwort" autocomplete="current-password" required>
+      <button class="primary" type="submit">${gOk ? "Neu anmelden" : "Bei Garmin anmelden"}</button>
+    </form>
+    <form class="set-form" id="g-mfa" autocomplete="one-time-code" ${g.mfaPending ? "" : "hidden"}>
+      <p class="small" style="margin:0">Garmin hat dir einen Bestätigungscode geschickt (E-Mail oder Authenticator).</p>
+      <input class="field" name="code" inputmode="numeric" placeholder="Code" autocomplete="one-time-code" required>
+      <button class="primary" type="submit">Code bestätigen</button>
+    </form>
+    <p class="small set-msg" id="g-msg" role="status"></p></section>`;
+
+  html += `<section class="card glass col-12"><div class="card-h"><div class="card-t">Quelle der Fahrten</div>
+      <span class="chip ${m.ready ? "on" : ""}">${m.ready ? "Bereit" : "Einrichtung fehlt"}</span></div>
+    <div class="chip-row" id="src">${[["intervals", "über intervals.icu (empfohlen)"], ["mywhoosh", "direkt von MyWhoosh"]].map(([v, l]) => `<button class="chip ${m.source === v ? "on" : ""}" type="button" data-src="${v}">${l}</button>`).join("")}</div>
+    <p class="small muted" style="margin:10px 0 0">${icu
+      ? "MyWhoosh schickt jede fertige Fahrt selbst an intervals.icu, das Dashboard holt sie dort mit deinem API-Schlüssel ab. Funktioniert auch, wenn die MyWhoosh-App offen ist."
+      : "Das Dashboard meldet sich selbst bei MyWhoosh an. MyWhoosh erlaubt aber nur ein Gerät: Ist die App offen, schlägt das fehl."}</p>
+    ${icu ? `<div class="section"><h3>Einrichtung (einmalig)</h3>
+      <ol class="small" style="margin:0 0 10px;padding-left:18px;display:grid;gap:4px">
+        <li>Kostenloses Konto auf <b>intervals.icu</b> anlegen.</li>
+        <li>In MyWhoosh (App oder Webseite) unter Verbindungen <b>Intervals.icu</b> verbinden.</li>
+        <li>Auf intervals.icu unter Einstellungen, ganz unten bei „Developer Settings“, den <b>API Key</b> anzeigen und hier einfügen.</li>
+        <li>Wichtig: In intervals.icu <b>keine</b> Garmin-Verbindung zum Hochladen nach Garmin aktivieren und MyWhoosh nicht zusätzlich direkt mit Strava verbinden, sonst entstehen Doppelungen.</li></ol>
+      <form class="set-form" id="icu-form" autocomplete="off">
+        <input class="field" type="password" name="apiKey" placeholder="${m.hasIcuKey ? "API-Schlüssel hinterlegt, neuen einfügen zum Ersetzen" : "intervals.icu API-Schlüssel"}" autocomplete="off" required>
+        <button class="primary" type="submit">API-Schlüssel speichern</button>
+        ${m.hasIcuKey ? '<button class="chip" id="icu-del" type="button">Schlüssel entfernen</button>' : ""}
+      </form><p class="small set-msg" id="icu-msg" role="status"></p></div>` : ""}
+  </section>`;
+
+  if (!icu) html += `<section class="card glass col-6"><div class="card-h"><div class="card-t">MyWhoosh Zugang</div>
+      <span class="chip ${m.hasCredentials ? "on" : ""}">${m.hasCredentials ? "Hinterlegt" : "Fehlt"}</span></div>
+    <p class="small muted" style="margin:0 0 12px">${m.hasCredentials ? `Angemeldet als ${esc(m.email || "")}. Das Passwort wird nie wieder angezeigt.` : "E-Mail und Passwort deines MyWhoosh-Kontos. Sie werden nur auf dem Pi gespeichert."}</p>
+    <form class="set-form" id="m-form" autocomplete="off">
+      <input class="field" type="email" name="email" placeholder="MyWhoosh E-Mail" value="${esc(m.email || "")}" autocomplete="off" required>
+      <input class="field" type="password" name="password" placeholder="${m.hasCredentials ? "Neues Passwort" : "MyWhoosh Passwort"}" autocomplete="new-password" required>
+      <button class="primary" type="submit">Zugang speichern</button>
+      ${m.hasCredentials ? '<button class="chip" id="m-del" type="button">Zugang entfernen</button>' : ""}
+    </form>
+    <p class="small set-msg" id="m-msg" role="status"></p>
+    <div class="section"><h3>Anmeldung über mywhoosh.com</h3>
+      <p class="small muted" style="margin:0 0 10px">${m.session?.until ? `Gespeichertes Token${m.session.source === "web" ? " (von mywhoosh.com)" : ""}: ${m.session.valid ? "gültig bis" : "abgelaufen am"} ${esc(fmtWhen(m.session.until))}. ` : ""}MyWhoosh erlaubt nur ein angemeldetes Gerät. Ist die App offen, klappt die automatische Anmeldung nicht. Dann hilft dieses Token, es braucht keine App-Anmeldung.</p>
+      <ol class="small" style="margin:0 0 10px;padding-left:18px;display:grid;gap:4px">
+        <li>Lesezeichen in die Safari-Lesezeichenleiste ziehen: <a class="chip" href="${esc(BOOKMARKLET)}" draggable="true" onclick="return false">MyWhoosh-Token</a></li>
+        <li>In Safari auf event.mywhoosh.com anmelden (mit „Ich bin kein Roboter“).</li>
+        <li>Auf der angemeldeten Seite das Lesezeichen antippen, das Token wird kopiert.</li>
+        <li>Hier einfügen und übernehmen:</li></ol>
+      <form class="set-form" id="t-form" autocomplete="off">
+        <input class="field" type="password" name="token" placeholder="Token einfügen" autocomplete="off" required>
+        <button class="primary" type="submit">Token übernehmen</button></form>
+      <p class="small set-msg" id="t-msg" role="status"></p></div></section>`;
+
+  html += `<section class="card glass col-12"><div class="card-h"><div class="card-t">MyWhoosh nach Garmin</div>
+      <label class="switch"><input type="checkbox" id="mw-enabled" ${m.enabled ? "checked" : ""} ${m.ready && gOk ? "" : "disabled"}><span>${m.enabled ? "Aktiv" : "Aus"}</span></label></div>
+    ${m.ready && gOk ? "" : `<div class="banner glass">${icon("alert")}<span>Zuerst Garmin anmelden und die Quelle einrichten.</span></div>`}
+    <p class="small muted" style="margin:0 0 12px">Neue Fahrten werden zu den eingestellten Uhrzeiten aus MyWhoosh geholt und zu Garmin hochgeladen. Von dort geht es weiter zu Strava.</p>
+    <div class="set-label">Wie oft am Tag</div>
+    <div class="chip-row" id="mw-presets">${[1, 2, 3, 4].map((n) => `<button class="chip ${times.length === n ? "on" : ""}" type="button" data-preset="${n}">${n}× täglich</button>`).join("")}</div>
+    <div class="set-label">Uhrzeiten</div>
+    <div class="time-list" id="mw-times">${times.map(timeRow).join("")}</div>
+    <button class="chip" id="mw-addtime" type="button" ${times.length >= 8 ? "disabled" : ""}>${icon("plus", 2.2)}Uhrzeit hinzufügen</button>
+    <div class="set-label">Aktivitätstyp bei Garmin</div>
+    <select class="field" id="mw-type" style="max-width:260px">${[["indoor_cycling", "Indoor-Radfahren"], ["virtual_ride", "Virtuelles Radfahren"], ["keep", "Nicht ändern (wie in der Datei)"]].map(([v, l]) => `<option value="${v}" ${v === (m.activityType || "indoor_cycling") ? "selected" : ""}>${l}</option>`).join("")}</select>
+    <div class="small muted" style="margin-top:6px">Trennt die Fahrten von deinen normalen Radfahrten. Strava zeigt „Virtuelles Radfahren“ als eigene Sportart, „Indoor-Radfahren“ als Fahrt auf dem Trainer.</div>
+    <div class="set-label">Nur Fahrten der letzten</div>
+    <select class="field" id="mw-lookback" style="max-width:200px">${[1, 2, 3, 7, 14, 30].map((d) => `<option value="${d}" ${d === m.lookbackDays ? "selected" : ""}>${d} ${d === 1 ? "Tag" : "Tage"}</option>`).join("")}</select>
+    <label class="switch" style="margin-top:14px"><input type="checkbox" id="mw-fake" ${m.fakeDevice ? "checked" : ""}><span>Als Garmin Edge 840 markieren <span class="muted">(damit Garmin Training Effect und Load berechnet)</span></span></label>
+    <div class="set-actions"><button class="primary" id="mw-save" type="button" style="width:auto;padding:11px 22px">Zeitplan speichern</button>
+      <button class="chip" id="mw-check" type="button">Jetzt prüfen</button><button class="chip" id="mw-run" type="button">Jetzt übertragen</button></div>
+    <p class="small set-msg" id="mw-msg" role="status"></p>
+    <div class="small muted">Nächster Lauf: <b>${esc(m.enabled ? fmtWhen(m.nextRun) : "–")}</b></div>
+    <div id="mw-items"></div>
+    ${m.log?.length ? `<div class="section"><h3>Letzte Läufe</h3><div class="list">${m.log.map((l) => `<div class="row" style="grid-template-columns:auto 1fr"><span class="ic" style="background:var(--chip);color:var(--${l.ok ? "good" : "critical"})">${icon(l.ok ? "check" : "alert", 2)}</span><span><div class="ttl">${esc(l.message)}</div><div class="meta"><span>${esc(fmtWhen(l.at))}</span></div></span></div>`).join("")}</div></div>` : ""}
+  </section></div>`;
+  render(html);
+
+  const say = (id, text, bad) => { const el = $(id); el.textContent = text; el.classList.toggle("bad", !!bad); };
+  const curTimes = () => [...document.querySelectorAll("[data-time]")].map((i) => i.value).filter(Boolean);
+  const redraw = (t) => viewSettings({ times: t });
+
+  $("#g-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target, btn = f.querySelector("button"); btn.disabled = true; say("#g-msg", "Melde an …");
+    const r = await sendJson("/api/garmin/login", "POST", { email: f.email.value, password: f.password.value });
+    f.password.value = ""; btn.disabled = false;
+    if (!r.ok) return say("#g-msg", r.data.error || r.data.detail || "Anmeldung fehlgeschlagen", true);
+    if (r.data.mfa) { f.hidden = true; $("#g-mfa").hidden = false; $("#g-mfa").code.focus(); return say("#g-msg", "Bestätigungscode eingeben."); }
+    cache.clear(); viewSettings();
+  };
+  $("#g-mfa").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target, btn = f.querySelector("button"); btn.disabled = true; say("#g-msg", "Prüfe Code …");
+    const r = await sendJson("/api/garmin/mfa", "POST", { code: f.code.value });
+    btn.disabled = false;
+    if (!r.ok) return say("#g-msg", r.data.error || r.data.detail || "Code nicht akzeptiert", true);
+    cache.clear(); viewSettings();
+  };
+  $("#src").onclick = async (e) => {
+    const b = e.target.closest("[data-src]"); if (!b) return;
+    await sendJson("/api/settings/mywhoosh", "PUT", { source: b.dataset.src }); cache.clear(); viewSettings();
+  };
+  $("#icu-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target, btn = f.querySelector("button.primary"); btn.disabled = true; say("#icu-msg", "Prüfe Schlüssel …");
+    const r = await sendJson("/api/settings/intervals", "PUT", { apiKey: f.apiKey.value });
+    btn.disabled = false; f.apiKey.value = "";
+    if (!r.ok) return say("#icu-msg", r.data.detail || "Schlüssel nicht akzeptiert", true);
+    cache.clear(); await viewSettings(); say("#mw-msg", "intervals.icu verbunden. Mit „Jetzt prüfen“ testen.");
+  });
+  $("#icu-del")?.addEventListener("click", async () => { await sendJson("/api/settings/intervals", "DELETE"); cache.clear(); viewSettings(); });
+  $("#m-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const r = await sendJson("/api/settings/mywhoosh/credentials", "PUT", { email: f.email.value, password: f.password.value });
+    f.password.value = "";
+    if (!r.ok) return say("#m-msg", r.data.detail || "Speichern fehlgeschlagen", true);
+    viewSettings();
+  });
+  $("#t-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target, btn = f.querySelector("button"); btn.disabled = true; say("#t-msg", "Prüfe Token …");
+    const r = await sendJson("/api/settings/mywhoosh/token", "PUT", { token: f.token.value });
+    btn.disabled = false; f.token.value = "";
+    if (!r.ok) return say("#t-msg", r.data.detail || "Token nicht akzeptiert", true);
+    cache.clear(); viewSettings();
+  });
+  $("#m-del")?.addEventListener("click", async () => { await sendJson("/api/settings/mywhoosh/credentials", "DELETE"); viewSettings(); });
+
+  $("#mw-presets").onclick = (e) => { const b = e.target.closest("[data-preset]"); if (b) redraw(MW_PRESETS[b.dataset.preset]); };
+  $("#mw-addtime").onclick = () => { const t = curTimes(); t.push("12:00"); redraw(t); };
+  $("#mw-times").onclick = (e) => { const b = e.target.closest("[data-timedel]"); if (!b) return; const t = curTimes(); t.splice(Number(b.dataset.timedel), 1); redraw(t); };
+  const payload = () => ({ enabled: $("#mw-enabled").checked, times: curTimes(), lookbackDays: Number($("#mw-lookback").value), activityType: $("#mw-type").value, fakeDevice: $("#mw-fake").checked });
+  const save = async (quiet) => {
+    const r = await sendJson("/api/settings/mywhoosh", "PUT", payload());
+    if (!r.ok) { say("#mw-msg", r.data.detail || "Speichern fehlgeschlagen", true); return false; }
+    if (!quiet) { cache.clear(); await viewSettings(); say("#mw-msg", "Gespeichert."); }
+    return true;
+  };
+  $("#mw-save").onclick = () => save();
+  $("#mw-enabled").onchange = () => save();
+  const runIt = async (dry, btn) => {
+    if (!(await save(true))) return;
+    btn.disabled = true; say("#mw-msg", dry ? "Prüfe MyWhoosh …" : "Übertrage …");
+    const r = await sendJson("/api/mywhoosh/run", "POST", { dry });
+    btn.disabled = false;
+    const d = r.data;
+    say("#mw-msg", d.message || d.detail || "Fehler", !r.ok || d.ok === false);
+    $("#mw-items").innerHTML = d.items?.length ? `<div class="section"><h3>Gefundene Fahrten</h3><div class="list">${d.items.map((i) => `<div class="row" style="grid-template-columns:1fr auto"><span><div class="ttl">${esc(i.name || i.id)}</div><div class="meta"><span>${esc(i.time ? fmtWhen(i.time) : "")}</span></div></span><span class="chip ${i.status === "neu" || i.status === "hochgeladen" ? "on" : ""}">${esc(i.status)}</span></div>`).join("")}</div></div>` : "";
+    if (!dry) cache.clear();
+  };
+  $("#mw-check").onclick = (e) => runIt(true, e.currentTarget);
+  $("#mw-run").onclick = (e) => runIt(false, e.currentTarget);
+}
+
 // --- Router ------------------------------------------------------------------------
 
 function setHeader(title, sub) {
@@ -1198,6 +1868,7 @@ async function route() {
     if (tab === "woche") await viewWeek();
     else if (tab === "training") await viewTraining(parts[1]);
     else if (tab === "health") await viewHealth();
+    else if (tab === "einstellungen") await viewSettings();
     else await viewToday();
   } catch (err) {
     render(`<div class="banner glass">${icon("alert")}<span>Keine Verbindung zum Dashboard-Server. Im Heimnetz oder per VPN verbunden? <span class="muted">(${esc(err.message)})</span></span></div>`);

@@ -405,6 +405,11 @@ def main() -> None:
     db.put_blob("profile", {"weight": 75000.0, "height": 181.0, "vo2MaxRunning": 52.0})
     db.put_blob("weights", [[(TODAY - timedelta(days=7 * i)).isoformat(),
                              round(75.0 + i * 0.16 + random.uniform(-0.3, 0.3), 1), None] for i in range(12, -1, -1)])
+    db.set_state("events", [
+        {"id": 1, "name": "Stadtlauf Halbmarathon", "date": (TODAY + timedelta(days=62)).isoformat(), "kind": "run", "detail": "21,1 km"},
+        {"id": 2, "name": "Sommer-Triathlon", "date": (TODAY + timedelta(days=230)).isoformat(), "kind": "triathlon",
+         "detail": "Olympische Distanz · 1,5 / 40 / 10 km"},
+    ])
     db.set_state("backfill_progress", 1.0)
     db.set_state("backfill_done", [])
     db.set_state("last_ok", time.time() - 240)

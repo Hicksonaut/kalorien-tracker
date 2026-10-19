@@ -51,6 +51,7 @@ Beide laufen komplett im Heimnetz, ohne Cloud und ohne Konto bei einem Anbieter.
 - **Laufanalyse:** Bei jedem Lauf prüft das Dashboard regelbasiert, was auffällt (siehe [Laufanalyse](#laufanalyse))
 - **Fortschritt:** Schwellenläufe und Zone-3-Läufe im Zeitverlauf, mit Effizienz und Pulsdrift (siehe [Fortschritt](#fortschritt-über-vergleichbare-läufe))
 - **Export-Studio:** Eine Einheit als Bild oder 6-Sekunden-Clip für Story, Feed oder Strava (siehe [Export](#export))
+- **Einstellungen:** Garmin-Login inklusive MFA direkt im Browser und optional der automatische Import von MyWhoosh-Fahrten (siehe [MyWhoosh nach Garmin](#mywhoosh-nach-garmin-optional))
 
 ### Laufanalyse
 
@@ -103,6 +104,18 @@ Im Detail einer Einheit öffnet der Teilen-Button das **Export-Studio**: Format 
 - Morgens fragt er häufiger nach, bis die Schlafdaten da sind, nachts selten.
 - Die Historie (1 Jahr) lädt er in kleinen Portionen im Hintergrund nach.
 - Die App liest immer aus dem lokalen SQLite-Cache und ist dadurch sofort da.
+
+### MyWhoosh nach Garmin (optional)
+
+MyWhoosh hat keine offizielle Anbindung an Garmin Connect. Das Dashboard kann neue Indoor-Fahrten deshalb selbst übertragen, damit sie wie jede andere Garmin-Aktivität weiterlaufen, zum Beispiel zu Strava. Alles wird unter *Einstellungen* (Zahnrad oben rechts) eingerichtet:
+
+- **Garmin-Login mit MFA** im Browser. Das Passwort wird nur für die Anmeldung benutzt, gespeichert werden ausschließlich die Tokens.
+- **Quelle der Fahrten:** entweder über [intervals.icu](https://intervals.icu) (MyWhoosh schickt jede Fahrt dorthin, das Dashboard holt die Originaldatei per API-Schlüssel ab, empfohlen) oder direkt von MyWhoosh.
+- **Zeitplan:** wie oft am Tag und zu welchen Uhrzeiten geprüft wird, dazu „Jetzt prüfen“ (Trockenlauf) und „Jetzt übertragen“.
+- **Titel und Typ:** Die Aktivität bekommt den MyWhoosh-Namen und bei Garmin den Typ *Indoor-Radfahren* oder *Virtuelles Radfahren*, damit sie nicht zwischen den Fahrten draußen landet.
+- Doppelte Fahrten werden erkannt (gleiche Startzeit, Garmin-Duplikatprüfung). Optional lässt sich die Datei als Garmin-Gerät kennzeichnen, damit Garmin Trainingseffekt und Load berechnet.
+
+Hinweise: Der Zugriff auf MyWhoosh läuft über eine **inoffizielle, nicht dokumentierte Schnittstelle**, die sich jederzeit ändern kann. MyWhoosh erlaubt pro Konto nur ein angemeldetes Gerät, bei offener App schlägt die direkte Anmeldung deshalb fehl. Der Weg über intervals.icu umgeht das. Zugangsdaten und Schlüssel liegen nur im Datenordner der eigenen Instanz (Dateirechte 600). Die Nutzung geschieht auf eigene Verantwortung und kann gegen die Nutzungsbedingungen der Anbieter verstoßen. MyWhoosh und intervals.icu sind Marken der jeweiligen Anbieter, dieses Projekt steht in keiner Verbindung zu ihnen.
 
 <p align="center">
   <img src="docs/screenshots/dashboard-desktop-woche.png" width="49%" alt="Woche am Desktop, hell">
@@ -242,7 +255,7 @@ Die Lebensmitteldaten sind **nicht** im Repository. Sie werden beim Einrichten h
 
 Die Namensnennung erscheint in der App unter *Verlauf → Datenquellen & Info*.
 Die Garmin-Anbindung nutzt die inoffizielle Bibliothek [`garminconnect`](https://github.com/cyberjunky/python-garminconnect).
-Sie kann jederzeit durch Änderungen bei Garmin brechen. Garmin ist eine Marke der Garmin Ltd., dieses Projekt steht in keiner Verbindung zu Garmin.
+Sie kann jederzeit durch Änderungen bei Garmin brechen. Garmin ist eine Marke der Garmin Ltd., dieses Projekt steht in keiner Verbindung zu Garmin. Die Anbindung an MyWhoosh und intervals.icu nutzt deren Webschnittstellen und ist ebenfalls inoffiziell.
 
 ## Hinweise
 

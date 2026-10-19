@@ -45,6 +45,9 @@ Mac (Heimnetz) / iPhone (WireGuard-VPN der Fritzbox) ──► raspberrypi:4310 
 | `app/auth.py` | Passwort (scrypt-Hash), signierte Session-Cookies, Sperre bei Fehlversuchen |
 | `app/login.py` | Einmaliger Garmin-Login (interaktiv) |
 | `app/analysis.py` | Regelbasierte Laufanalyse (Pacing, Pulsdrift, Zielpace, Laufdynamik gegen eigene Baseline), Karte "Analyse" im Detail; `progress()` fuer die Fortschrittskarten (Schwellenlaeufe, Zone-3-Laeufe) unter Training > Laufen |
+| `app/records.py` | Bestleistungen aus den Zeitreihen (1/5/10 km, HM, 20/40 km Rad, Leistung 1-60 min) und Kraft-Verlauf je Uebung (1RM nach Epley) |
+| `app/insights.py` | Fruehwarnung (Ruhepuls, HRV, Schlaf, Lastanstieg gegen die eigenen letzten Wochen) und Zusammenhaenge (Korrelationen ueber 120 Tage) |
+| `app/season.py` | Wettkaempfe (Countdown, in SQLite gespeichert) und Formkurve (Fitness/Ermuedung/Form aus der Trainingslast) |
 | `app/nutrition.py` | Verbindung zum Kalorien-Tracker (`/internal`, Energiebilanz) |
 | `web/` | Frontend ohne Build-Schritt: `app.js`, `styles.css`, Service Worker, Icons |
 | `web/share.js` | Export-Studio: Einheit als PNG (auch transparent) oder 6-s-Clip, gerendert auf Canvas |
@@ -75,6 +78,39 @@ Auf Training → Laufen vergleichen die Karten *Schwellenläufe* und *Zone-3-Lä
 
 Die Pace-Vorgaben für Schwellen- und Intervalleinheiten stehen als Konstanten in `app/analysis.py`
 (`TARGET_SCHWELLE`, `TARGET_INTERVALL`) und müssen bei geänderten Plan-Paces dort angepasst werden.
+
+## Gesamt, Bestleistungen, Kraft je Übung
+
+- **Training → Gesamt** (`/api/overview`): Intensitätsverteilung (Stunden je HF-Zone pro Woche, alle Sportarten,
+  Anteil locker/mittel/hart), Jahresübersicht mit Heatmap und Monatssummen, durchsuchbares Archiv aller Einheiten
+  des Jahres. Ein Klick auf einen Tag der Heatmap filtert das Archiv.
+- **Bestleistungen** auf Laufen und Rad: schnellste Abschnitte aus den gespeicherten Zeitreihen. Die Reihen haben
+  rund 400 Punkte je Einheit, deshalb gibt es Leistungswerte erst ab 1 Minute. Hält eine Einheit einen Bestwert,
+  steht das in ihrem Detail.
+- **Kraft → Verlauf je Übung**: bester Satz je Einheit als geschätztes 1RM, dazu Sätze, Wiederholungen und Volumen.
+  Sätze, die Garmin keiner Übung zuordnet, bleiben außen vor.
+
+## Radanalyse, Vergleich, Frühwarnung, Zusammenhänge
+
+- **Radanalyse** im Detail jeder Fahrt (`analysis.analyze_ride`): mit Leistungsmesser Intensitätsfaktor, TSS,
+  Variabilität und Entkopplung Leistung/Puls gegen die in Garmin hinterlegte FTP; ohne Leistungsmesser Pulsverlauf,
+  Standzeit, Trittfrequenz und Zonencheck. Training → Rad zeigt *Grundlagenfahrten* im Zeitverlauf.
+- **Vergleichen** im Detail von Läufen und Fahrten: ähnliche Einheit wählen (gleicher Name, gleiche Art, sonst
+  ähnliche Distanz), dann Kennzahlen mit Differenz, Pace/Leistung und Puls über die Distanz, Runden nebeneinander.
+- **Frühwarnung** auf Heute: Ruhepuls und HRV der letzten drei Tage gegen die vier Wochen davor, Schlaf,
+  Trainingslast der letzten 7 Tage gegen die Vorwochen, Tage ohne Ruhetag.
+- **Zusammenhänge** im Health-Tab: Schlaf, HRV, Last und Energiebilanz gegen Erholung und Laufeffizienz.
+  Korrelationen, keine Ursachen; unter 14 gemeinsamen Tagen gibt es keine Aussage.
+- Bestleistungen Laufen zeigen zusätzlich Garmins Rennprognose für 5 km, 10 km und Halbmarathon mit dem Abstand zum Bestwert.
+
+## Wettkämpfe und Formkurve
+
+- **Wettkämpfe** werden unter Training → Gesamt angelegt und gelöscht (`POST /api/events`, `DELETE /api/events/{id}`)
+  und liegen in der SQLite-Datenbank. Heute zeigt die nächsten drei mit Countdown; bei Läufen über 5 km, 10 km,
+  Halbmarathon oder Marathon steht Garmins aktuelle Rennprognose dabei.
+- **Formkurve**: Fitness = 42-Tage-Mittel der täglichen Trainingslast, Ermüdung = 7-Tage-Mittel, Form = Fitness minus
+  Ermüdung am Morgen. Grundlage ist Garmins Trainingslast je Einheit, nicht TSS; bewertet wird die Form deshalb
+  in Prozent der Fitness (frisch ab +5 %, Aufbau zwischen −10 und −30 %).
 
 ## Sync-Logik
 
@@ -147,3 +183,10 @@ SYNC_ENABLED=0 AUTH_ENABLED=0 ./.venv/bin/python -m uvicorn app.main:app --port 
 Die Sportfarben (Laufen Orange, Rad Blau, Kraft Gruen) sind mit dem
 Palette-Validator geprueft: CVD-Abstand fuer alle Paare >= 9, in hellem und
 dunklem Modus. Statusfarben (erledigt/verpasst) erscheinen nie ohne Icon + Text.
+
+## MyWhoosh -> Garmin (Einstellungen)
+
+Zahnrad oben rechts -> Einstellungen: Garmin-Login inkl. MFA direkt im Browser (Passwort wird nicht
+gespeichert, nur Tokens), MyWhoosh-Zugang (`data/mywhoosh_credentials.json`, 0600), Zeitplan (wie oft
+und wann am Tag), "Jetzt pruefen" (Trockenlauf) und "Jetzt uebertragen". Code: `app/mywhoosh.py`.
+Garmin leitet die hochgeladenen Fahrten an Strava weiter.

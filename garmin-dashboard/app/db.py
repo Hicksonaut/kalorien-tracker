@@ -166,6 +166,11 @@ def activity(act_id: int) -> tuple[dict, dict | None] | None:
     return s, _loads(row["detail"])
 
 
+def activity_years() -> list[int]:
+    rows = conn().execute("SELECT DISTINCT substr(day, 1, 4) AS y FROM activities ORDER BY y").fetchall()
+    return [int(r["y"]) for r in rows]
+
+
 def activity_count() -> int:
     return conn().execute("SELECT COUNT(*) FROM activities").fetchone()[0]
 

@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, nutrition, views
+from . import auth, mywhoosh, nutrition, season, views
 from .sync import Paused, syncer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -89,6 +89,7 @@ def api_logout():
 def _start() -> None:
     if SYNC_ENABLED:
         syncer.start()
+        mywhoosh.start()
 
 
 def _parse_date(value: str | None) -> date:
@@ -117,6 +118,28 @@ def api_sport(sport: str, weeks: int = 12):
     return views.sport_view(sport, max(4, min(weeks, 52)))
 
 
+@app.get("/api/overview")
+def api_overview(year: int | None = None, weeks: int = 12):
+    return views.overview_view(year, max(4, min(weeks, 52)))
+
+
+@app.post("/api/events")
+async def api_event_add(request: Request):
+    try:
+        body = await request.json()
+        return season.add_event(str(body.get("name") or ""), str(body.get("date") or ""),
+                                str(body.get("kind") or "other"), str(body.get("detail") or ""))
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(400, "Name, Datum (JJJJ-MM-TT) und Art noetig")
+
+
+@app.delete("/api/events/{event_id}")
+def api_event_delete(event_id: int):
+    if not season.delete_event(event_id):
+        raise HTTPException(404)
+    return {"ok": True}
+
+
 @app.get("/api/health")
 def api_health(days: int = 30):
     return views.health_view(max(7, min(days, 365)))
@@ -138,6 +161,102 @@ def api_status():
 @app.post("/api/sync")
 def api_sync():
     return {"started": syncer.trigger(), **syncer.status()}
+
+
+# --- Einstellungen: MyWhoosh -> Garmin, Garmin-Login ---------------------------------
+
+async def _json(request: Request) -> dict:
+    try:
+        body = await request.json()
+        return body if isinstance(body, dict) else {}
+    except Exception:
+        return {}
+
+
+@app.get("/api/settings")
+def api_settings():
+    return {"garmin": mywhoosh.garmin_status(), "mywhoosh": mywhoosh.status(), "sync": syncer.status()}
+
+
+@app.put("/api/settings/mywhoosh")
+async def api_settings_mywhoosh(request: Request):
+    try:
+        mywhoosh.set_settings(await _json(request))
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e))
+    return api_settings()
+
+
+@app.put("/api/settings/mywhoosh/credentials")
+async def api_settings_mw_credentials(request: Request):
+    body = await _json(request)
+    try:
+        mywhoosh.set_credentials(str(body.get("email", "")), str(body.get("password", "")))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return api_settings()
+
+
+@app.put("/api/settings/mywhoosh/token")
+async def api_settings_mw_token(request: Request):
+    body = await _json(request)
+    try:
+        return await asyncio.to_thread(mywhoosh.set_web_token, str(body.get("token", "")))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.put("/api/settings/intervals")
+async def api_settings_icu(request: Request):
+    body = await _json(request)
+    try:
+        await asyncio.to_thread(mywhoosh.set_icu_key, str(body.get("apiKey", "")))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return api_settings()
+
+
+@app.delete("/api/settings/intervals")
+def api_settings_icu_delete():
+    mywhoosh.clear_icu_key()
+    return api_settings()
+
+
+@app.delete("/api/settings/mywhoosh/credentials")
+def api_settings_mw_credentials_delete():
+    mywhoosh.clear_credentials()
+    return api_settings()
+
+
+@app.post("/api/mywhoosh/run")
+async def api_mywhoosh_run(request: Request):
+    body = await _json(request)
+    res = await asyncio.to_thread(mywhoosh.run, bool(body.get("dry")))
+    return {**res, "settings": api_settings()}
+
+
+@app.post("/api/garmin/login")
+async def api_garmin_login(request: Request):
+    ip = request.client.host if request.client else "?"
+    body = await _json(request)
+    try:
+        return await asyncio.to_thread(mywhoosh.garmin_login, str(body.get("email", "")), str(body.get("password", "")))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logging.getLogger("garmin-login").warning("Garmin-Login fehlgeschlagen (%s): %s", ip, e.__class__.__name__)
+        return JSONResponse({"error": "Anmeldung bei Garmin fehlgeschlagen: " + str(e)[:140]}, status_code=502)
+
+
+@app.post("/api/garmin/mfa")
+async def api_garmin_mfa(request: Request):
+    body = await _json(request)
+    try:
+        return await asyncio.to_thread(mywhoosh.garmin_mfa, str(body.get("code", "")))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        return JSONResponse({"error": "Code nicht akzeptiert: " + str(e)[:140]}, status_code=502)
 
 
 @app.get("/internal/v1/energy")

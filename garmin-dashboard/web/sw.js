@@ -1,5 +1,5 @@
 // Service Worker: App-Shell offline, API "network first" mit letztem Stand als Fallback.
-const SHELL = "shell-v6";
+const SHELL = "shell-v9";
 const API = "api-v2";
 const SHELL_FILES = ["/", "/styles.css", "/app.js", "/share.js", "/manifest.webmanifest",
   "/icons/icon-192.png", "/icons/apple-touch-icon.png"];

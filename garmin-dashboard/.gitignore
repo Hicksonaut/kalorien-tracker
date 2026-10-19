@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 data/
 .env
+.claude/
+.DS_Store
+._*
+*.db
+*.db-*

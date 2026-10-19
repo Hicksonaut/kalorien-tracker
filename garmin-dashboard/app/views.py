@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from . import analysis, db, nutrition
+from . import analysis, db, insights, nutrition, records, season
 from .sync import sport_of
 
 PLANNED_SPORT = {
@@ -175,6 +175,8 @@ def today_view() -> dict[str, Any]:
         "week": {"planned": w["planned"], "done": w["done"], "totals": w["totals"]},
         "recent": [_act_card(a) for a in recent[:4]],
         "nutrition": _nutrition_today(today, summary),
+        "warnings": insights.warnings(today),
+        "season": {"events": season.upcoming(today)[:3], "form": season.status()},
     }
 
 
@@ -253,6 +255,7 @@ def sport_view(sport: str, weeks: int = 12) -> dict[str, Any]:
         out["racePredictions"] = db.get_blob("race_predictions")
         out["paceTrend"] = _pace_trend(acts)
         out["progress"] = analysis.progress()
+        out["bests"] = records.bests(sport)
         out["vo2Trend"] = [
             {"date": d, "value": v.get("vo2max")}
             for d, v in db.daily_range("tstatus", since, today.isoformat()).items()
@@ -265,6 +268,8 @@ def sport_view(sport: str, weeks: int = 12) -> dict[str, Any]:
         out["ftp"] = cyc.get("functionalThresholdPower") if cyc else None
         out["weight"] = (profile.get("weight") or 0) / 1000 or None
         out["powerZones"] = cyc
+        out["bests"] = records.bests(sport)
+        out["progress"] = analysis.ride_progress()
         out["powerTrend"] = [
             {"date": a["startTimeLocal"][:10], "np": a.get("normPower"), "avg": a.get("avgPower"),
              "hr": a.get("averageHR"), "id": a.get("activityId")}
@@ -282,6 +287,7 @@ def sport_view(sport: str, weeks: int = 12) -> dict[str, Any]:
                            "volume": round(kg), "duration": a.get("duration"),
                            "id": a.get("activityId")})
         out["sessions"] = volume
+        out["exercises"] = records.exercises(acts)
     return out
 
 
@@ -348,6 +354,60 @@ def health_view(days: int = 30) -> dict[str, Any]:
         "weights": weights,
         "profileWeight": (profile.get("weight") or 0) / 1000 or None,
         "nutrition": {"enabled": nutrition.enabled(), "available": food is not None, "link": nutrition.link()},
+        "relations": insights.relations(today),
+    }
+
+
+SPORTS = ("running", "cycling", "strength", "other")
+
+
+def _zone_secs(a: dict) -> list[float]:
+    return [a.get(f"hrTimeInZone_{i}") or 0 for i in range(1, 6)]
+
+
+def overview_view(year: int | None = None, weeks: int = 12) -> dict[str, Any]:
+    """Alle Sportarten zusammen: Intensitaetsverteilung, Jahresuebersicht, Archiv."""
+    today = date.today()
+    years = db.activity_years() or [today.year]
+    if year not in years:
+        year = years[-1]
+
+    first = _monday(today) - timedelta(weeks=weeks - 1)
+    intensity = [{"week": (first + timedelta(weeks=i)).isoformat(), "zones": [0.0] * 5} for i in range(weeks)]
+    for a in db.activities_between(first.isoformat(), today.isoformat()):
+        idx = (date.fromisoformat(a["startTimeLocal"][:10]) - first).days // 7
+        if 0 <= idx < weeks:
+            z = intensity[idx]["zones"]
+            for i, secs in enumerate(_zone_secs(a)):
+                z[i] += secs
+
+    acts = db.activities_between(f"{year}-01-01", f"{year}-12-31")
+    blank = lambda: {"count": 0, "duration": 0, "distance": 0, "elevation": 0, "load": 0}  # noqa: E731
+    totals = {s: blank() for s in SPORTS}
+    months = [{s: blank() for s in SPORTS} for _ in range(12)]
+    days: dict[str, dict] = {}
+    for a in acts:
+        ds = a["startTimeLocal"][:10]
+        sport = a["_sport"] if a["_sport"] in SPORTS else "other"
+        for t in (totals[sport], months[int(ds[5:7]) - 1][sport]):
+            t["count"] += 1
+            t["duration"] += a.get("duration") or 0
+            t["distance"] += a.get("distance") or 0
+            t["elevation"] += a.get("elevationGain") or 0
+            t["load"] += a.get("activityTrainingLoad") or 0
+        d = days.setdefault(ds, {"date": ds, "count": 0, "duration": 0, "load": 0, "sports": []})
+        d["count"] += 1
+        d["duration"] += a.get("duration") or 0
+        d["load"] += a.get("activityTrainingLoad") or 0
+        if sport not in d["sports"]:
+            d["sports"].append(sport)
+    return {
+        "year": year, "years": years, "weeks": weeks,
+        "season": season.view(weeks, today),
+        "intensity": intensity,
+        "totals": totals, "months": months,
+        "days": sorted(days.values(), key=lambda d: d["date"]),
+        "activities": [_act_card(a) for a in acts],
     }
 
 
@@ -371,8 +431,37 @@ def activity_view(act_id: int) -> dict[str, Any] | None:
         "bodyBattery": summary.get("differenceBodyBattery"),
         "vo2max": summary.get("vO2MaxValue"),
     })
-    return {"activity": card, "detail": detail, "analysis": analysis.analyze_run(act_id, summary, detail)}
+    card["records"] = records.held_by(act_id, summary["_sport"])
+    if summary["_sport"] == "cycling":
+        card["ride"] = analysis.ride_metrics(summary)
+    return {"activity": card, "detail": detail, "analysis": analysis.analyze(act_id, summary, detail),
+            "similar": similar(act_id, summary)}
 
 
-def status_view(sync_status: dict) -> dict[str, Any]:
-    return sync_status
+def _kind_key(name: str) -> tuple[str, int | None]:
+    return analysis._kind(name, []), analysis._intended_zone(name)
+
+
+def similar(act_id: int, summary: dict, limit: int = 12) -> list[dict]:
+    """Vergleichbare Einheiten: gleicher Name zuerst, dann gleiche Art (Intervalle, Schwelle,
+    gleiche Zone), sonst aehnliche Distanz. Innerhalb einer Stufe die neuesten zuerst."""
+    sport = summary["_sport"]
+    if sport not in ("running", "cycling"):
+        return []
+    name = (summary.get("activityName") or "").strip().lower()
+    kind = _kind_key(name)
+    typed = kind[0] != "steady" or kind[1] is not None
+    dist, dur = summary.get("distance") or 0, summary.get("duration") or 0
+    scored = []
+    for a in db.activities_between("0000-00-00", "9999-12-31", sport):
+        if a["activityId"] == act_id:
+            continue
+        other = (a.get("activityName") or "").strip().lower()
+        d, t = a.get("distance") or 0, a.get("duration") or 0
+        gap = abs(d - dist) / dist if dist and d else abs(t - dur) / dur if dur and t else 1
+        rank = 0 if other == name and gap <= 0.35 else 1 if typed and _kind_key(other) == kind else 2
+        if rank == 2 and gap > 0.2:
+            continue
+        scored.append((rank, -date.fromisoformat(a["startTimeLocal"][:10]).toordinal(), gap, a))
+    scored.sort(key=lambda x: x[:3])
+    return [{**_act_card(a), "sameName": rank < 2} for rank, _, _, a in scored[:limit]]

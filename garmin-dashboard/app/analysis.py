@@ -1,4 +1,4 @@
-"""Regelbasierte Laufanalyse: was faellt an einer Einheit auf?
+"""Regelbasierte Lauf- und Radanalyse: was faellt an einer Einheit auf?
 
 Reine Rechnung auf den gespeicherten Daten (Zusammenfassung, Runden, Zeitreihen),
 keine externen Dienste. Jede Regel liefert einen Befund mit Ampel:
@@ -314,6 +314,10 @@ def analyze_run(act_id: int, summary: dict, detail: dict | None) -> dict | None:
     if temp is not None and temp >= 25:
         items.append(_item("Bedingungen", "info", "Warm",
                            f"Bis {temp:.0f} °C. Höherer Puls und Pulsdrift sind bei Hitze zu erwarten."))
+    return _result(items)
+
+
+def _result(items: list[dict]) -> dict | None:
     if not items:
         return None
 
@@ -329,6 +333,153 @@ def analyze_run(act_id: int, summary: dict, detail: dict | None) -> dict | None:
     else:
         level, text = "ok", "Keine Auffälligkeiten"
     return {"level": level, "summary": text, "items": items}
+
+
+# --- Radanalyse ----------------------------------------------------------------------
+
+def _de(value: float, digits: int = 1, sign: bool = False) -> str:
+    return f"{value:{'+' if sign else ''}.{digits}f}".replace(".", ",")
+
+
+def cycling_ftp() -> float | None:
+    cyc = next((z for z in db.get_blob("power_zones") or [] if z.get("sport") == "CYCLING"), None)
+    return (cyc or {}).get("functionalThresholdPower") or None
+
+
+def _halves(t: list, a: list, b: list | None = None) -> tuple[float, float] | None:
+    """Mittelwert von a (oder a/b) in der ersten und zweiten Zeithaelfte, ohne die ersten 5 Minuten."""
+    n = min(len(t), len(a), len(b) if b is not None else len(a))
+    if n < 40 or not t[n - 1]:
+        return None
+    start = min(300, t[n - 1] * 0.1)
+    mid = start + (t[n - 1] - start) / 2
+    parts: tuple[list, list] = ([], [])
+    for i in range(n):
+        if t[i] is None or t[i] < start or a[i] is None or (b is not None and not b[i]):
+            continue
+        parts[0 if t[i] < mid else 1].append((a[i], b[i] if b is not None else 1))
+    if min(len(parts[0]), len(parts[1])) < 15:
+        return None
+    first, second = (mean(x for x, _ in p) / mean(y for _, y in p) for p in parts)
+    return first, second
+
+
+def decoupling_pct(detail: dict) -> float | None:
+    """Entkopplung Leistung/Puls: wie stark faellt Watt pro Herzschlag in der zweiten Haelfte ab."""
+    s = detail.get("series") or {}
+    h = _halves(s.get("t") or [], s.get("p") or [], s.get("hr") or [])
+    if not h or not h[0]:
+        return None
+    return (h[0] - h[1]) / h[0] * 100
+
+
+def ride_metrics(summary: dict) -> dict[str, float] | None:
+    ftp, np_, avg = cycling_ftp(), summary.get("normPower"), summary.get("avgPower")
+    if not ftp or not np_ or not avg:
+        return None
+    dur = summary.get("movingDuration") or summary.get("duration") or 0
+    intensity = np_ / ftp
+    return {"if": intensity, "vi": np_ / avg, "tss": dur * np_ * intensity / (ftp * 3600) * 100, "ftp": ftp}
+
+
+def analyze_ride(act_id: int, summary: dict, detail: dict | None) -> dict | None:
+    if not detail or (summary.get("duration") or 0) < 1200:
+        return None
+    name = summary.get("activityName") or ""
+    zone = _intended_zone(name)
+    dur = summary.get("movingDuration") or summary.get("duration") or 0
+    s = detail.get("series") or {}
+    items: list[dict] = []
+
+    m = ride_metrics(summary)
+    if m:
+        weight = ((db.get_blob("profile") or {}).get("weight") or 0) / 1000
+        wkg = f", {_de(summary['normPower'] / weight, 1)} W/kg" if weight else ""
+        base = (f"Normalized Power {summary['normPower']:.0f} W{wkg} bei FTP {m['ftp']:.0f} W: "
+                f"Intensitätsfaktor {_de(m['if'], 2)}, Belastung rund {m['tss']:.0f} TSS.")
+        if zone and zone <= 2 and m["if"] > 0.80:
+            items.append(_item("Belastung", "warn", f"Zu hart für Zone {zone}",
+                               f"{base} Für eine Grundlagenfahrt liegt der Intensitätsfaktor üblicherweise unter 0,75."))
+        else:
+            label = ("Sehr harte Fahrt" if m["if"] > 0.95 else "Fahrt im Schwellenbereich" if m["if"] > 0.85
+                     else "Tempofahrt" if m["if"] > 0.75 else "Grundlagenfahrt")
+            items.append(_item("Belastung", "ok", label, base))
+        if m["vi"] > 1.15:
+            items.append(_item("Gleichmäßigkeit", "info", "Unruhig gefahren",
+                               f"Variabilität {_de(m['vi'], 2)} (Normalized Power zu Durchschnitt). Viele Antritte oder welliges "
+                               "Gelände; für Grundlage und Triathlon-Pacing ist ein Wert nahe 1,05 das Ziel."))
+        else:
+            items.append(_item("Gleichmäßigkeit", "ok", "Gleichmäßig gefahren", f"Variabilität {_de(m['vi'], 2)}."))
+        dec = decoupling_pct(detail) if dur >= 2700 else None
+        if dec is not None and dec > 8:
+            items.append(_item("Entkopplung", "warn", "Starke Entkopplung",
+                               f"Watt pro Herzschlag fallen in der zweiten Hälfte um {dec:.0f} %. "
+                               "Die aerobe Ausdauer reicht für diese Dauer und Intensität noch nicht, oder Hitze und Trinken haben gefehlt."))
+        elif dec is not None and dec > 5:
+            items.append(_item("Entkopplung", "info", "Leichte Entkopplung",
+                               f"Watt pro Herzschlag fallen in der zweiten Hälfte um {dec:.0f} %. Unter 5 % gilt als aerob stabil."))
+        elif dec is not None:
+            items.append(_item("Entkopplung", "ok", "Aerob stabil", f"Leistung zu Puls über die Fahrt {_de(-dec, 1, True)} %."))
+    else:
+        h = _halves(s.get("t") or [], s.get("hr") or [])
+        if h and dur >= 2700 and (h[1] - h[0]) / h[0] * 100 > 5:
+            items.append(_item("Puls", "info", "Puls steigt im Verlauf",
+                               f"Im Schnitt {h[0]:.0f} bpm in der ersten und {h[1]:.0f} bpm in der zweiten Hälfte. "
+                               "Ohne Leistungsmesser lässt sich nicht trennen, ob Ermüdung oder das Gelände dahintersteckt."))
+
+    z = _zone_check(name, detail)
+    if z:
+        items.append(z)
+    elapsed = summary.get("elapsedDuration") or 0
+    moving = summary.get("movingDuration") or 0
+    if elapsed and moving and (elapsed - moving) / elapsed > 0.15:
+        items.append(_item("Pausen", "info", "Viel Standzeit",
+                           f"{(elapsed - moving) / 60:.0f} von {elapsed / 60:.0f} Minuten ohne Bewegung. "
+                           "Lange Stopps machen die Fahrt leichter, als Dauer und Schnitt vermuten lassen."))
+    cad = summary.get("averageBikingCadenceInRevPerMinute")
+    if cad and cad < 75:
+        items.append(_item("Trittfrequenz", "info", "Niedrige Trittfrequenz",
+                           f"Im Schnitt {cad:.0f} U/min. Um 85 bis 95 U/min schont die Muskulatur, was beim Koppellauf zählt."))
+    elif cad:
+        items.append(_item("Trittfrequenz", "ok", "Trittfrequenz passt", f"Im Schnitt {cad:.0f} U/min."))
+    temp = summary.get("maxTemperature")
+    if temp is not None and temp >= 25:
+        items.append(_item("Bedingungen", "info", "Warm", f"Bis {temp:.0f} °C. Höherer Puls und Entkopplung sind bei Hitze zu erwarten."))
+    return _result(items)
+
+
+def analyze(act_id: int, summary: dict, detail: dict | None) -> dict | None:
+    if summary.get("_sport") == "cycling":
+        return analyze_ride(act_id, summary, detail)
+    return analyze_run(act_id, summary, detail)
+
+
+def ride_progress(days: int = 365) -> list[dict]:
+    """Grundlagenfahrten im Zeitverlauf: Effizienz (Watt bzw. Meter pro Herzschlag) und Entkopplung."""
+    today = date.today()
+    acts = db.activities_between((today - timedelta(days=days)).isoformat(), today.isoformat(), "cycling")
+    out = []
+    for a in reversed(acts):
+        if (a.get("duration") or 0) < 2700 or not a.get("averageHR") or not a.get("averageSpeed"):
+            continue
+        found = db.activity(a["activityId"])
+        detail = found[1] if found else None
+        if not detail:
+            continue
+        zones = detail.get("hrZones") or []
+        total = sum(z.get("secs") or 0 for z in zones)
+        easy = sum(z.get("secs") or 0 for z in zones if (z.get("zone") or 9) <= 2)
+        named_easy = (_intended_zone(a.get("activityName") or "") or 9) <= 2
+        if not named_easy and (not total or easy / total < 0.6):
+            continue
+        power = a.get("normPower") or a.get("avgPower")
+        out.append({"id": a["activityId"], "date": a["startTimeLocal"][:10], "temp": a.get("maxTemperature"),
+                    "hr": a["averageHR"], "power": power, "speed": a["averageSpeed"] * 3.6,
+                    "minutes": a["duration"] / 60,
+                    "ef": power / a["averageHR"] if power else None,
+                    "efSpeed": _ef(a["averageSpeed"], a["averageHR"]),
+                    "decoupling": decoupling_pct(detail) if power else None})
+    return out
 
 
 # --- Fortschritt ueber mehrere Laeufe ---------------------------------------------
